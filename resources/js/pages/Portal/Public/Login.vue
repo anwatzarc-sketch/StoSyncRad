@@ -76,6 +76,9 @@ async function forgot() {
                 <UiButton variant="primary" type="submit" class="w-full" :loading="busy">Continue</UiButton>
                 <button type="button" class="block min-h-11 w-full text-center text-sm text-ink-muted underline" @click="step = 'forgot'">Forgot your password?</button>
                 <p class="text-center text-sm text-ink-muted">New customer? <Link href="/portal/register" class="underline">Sign up</Link></p>
+                <p class="text-center text-sm text-ink-muted">
+                    Registered but no confirmation e-mail? <Link :href="`/portal/verify-email/resend${identifier.includes('@') ? `?email=${encodeURIComponent(identifier)}` : ''}`" class="underline">Send a new link</Link>
+                </p>
             </form>
 
             <form v-else-if="step === 'mfa'" class="space-y-4" @submit.prevent="verify">

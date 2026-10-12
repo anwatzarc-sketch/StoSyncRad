@@ -23,6 +23,7 @@ use App\Support\Documents\ManagesDocuments;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 /**
@@ -33,6 +34,8 @@ use Illuminate\Support\Str;
 final class RegistrationService
 {
     use ManagesDocuments;
+
+    private const RESENDS_PER_HOUR = 3;
 
     public function __construct(
         private readonly PlatformConfig $config,
@@ -87,13 +90,62 @@ final class RegistrationService
         return $registration;
     }
 
+    /**
+     * Send a new confirmation link for a registration that is still waiting for its e-mail confirmation
+     * or its two-step verification set-up. The new link replaces any earlier one. Unknown addresses,
+     * finished registrations and accounts are answered the same way by the caller (nothing is sent), so
+     * the form cannot be used to discover accounts; every address is limited to a few links per hour.
+     */
+    public function resendVerification(string $email): void
+    {
+        $email = mb_strtolower(trim($email));
+        $key = 'portal-verification-resend|'.hash('sha256', $email);
+        if (RateLimiter::tooManyAttempts($key, self::RESENDS_PER_HOUR)) {
+            throw DomainException::of(ErrorCode::RATE_LIMITED, 'Too many links were requested for this address. Try again in '
+                .max(1, (int) ceil(RateLimiter::availableIn($key) / 60)).' minutes.');
+        }
+        RateLimiter::hit($key, 3600);
+
+        $token = Str::random(64);
+        $registration = DB::transaction(function () use ($email, $token) {
+            $registration = CustomerRegistration::query()->whereRaw('lower(email) = ?', [$email])
+                ->whereIn('status', [S::PENDING_VERIFICATION->value, S::PENDING_MFA->value])->orderByDesc('created_at')->lockForUpdate()->first();
+            if ($registration === null) {
+                return null;
+            }
+            $registration->forceFill(['email_token_hash' => hash('sha256', $token),
+                'email_token_expires_at' => now()->addHours($this->config->int('portal.registration.verification_hours'))])->save();
+            $this->audit(null, 'portal.registration.verification_resent', $registration, null, ['email' => $email]);
+
+            return $registration;
+        });
+        if ($registration === null) {
+            return;
+        }
+        $this->mailer->send('email.portal.verify_email', $email, 'Confirm your email address', [
+            'recipient_name' => (string) (Person::query()->whereKey($registration->person_id)->value('full_name') ?? $registration->company_name),
+            'company_name' => $registration->company_name, 'needs_approval' => $registration->invitation_id === null,
+            'verify_url' => url('/portal/verify-email?registration='.$registration->id.'&token='.$token),
+            'expires_hours' => $this->config->int('portal.registration.verification_hours'),
+        ]);
+    }
+
     /** E-mail link: proves the address. Repeating a used link simply continues the registration. */
     public function verifyEmail(string $id, string $token): CustomerRegistration
     {
         return DB::transaction(function () use ($id, $token) {
-            $invalid = fn () => DomainException::of(ErrorCode::VALIDATION_FAILED, 'This link is invalid or has expired. Please register again or contact us.');
+            $invalid = fn () => DomainException::of(ErrorCode::VALIDATION_FAILED, 'This link is invalid or has expired. Ask for a new link below, or contact us.');
             $registration = CustomerRegistration::query()->lockForUpdate()->find($id) ?? throw $invalid();
             if ($registration->status === S::PENDING_MFA && $registration->email_verified_at !== null && $registration->email_token_hash === null) {
+                return $registration;
+            }
+            if ($registration->status === S::PENDING_MFA && $registration->email_token_hash !== null) {
+                // A new link sent to finish two-step verification set-up.
+                if (! hash_equals($registration->email_token_hash, hash('sha256', $token)) || $registration->email_token_expires_at?->isPast()) {
+                    throw $invalid();
+                }
+                $registration->forceFill(['email_token_hash' => null])->save();
+
                 return $registration;
             }
             if ($registration->status !== S::PENDING_VERIFICATION || $registration->email_token_hash === null

@@ -14,6 +14,7 @@ Route::prefix('portal')->name('portal.')->middleware('portal')->group(function (
         Route::inertia('/', 'Portal/Public/Landing')->name('landing');
         Route::inertia('/register', 'Portal/Public/Register')->name('register');
         Route::inertia('/verify-email', 'Portal/Public/VerifyEmail')->name('verify_email');
+        Route::inertia('/verify-email/resend', 'Portal/Public/ResendVerification')->name('verify_email.resend');
         Route::inertia('/security-setup', 'Portal/Public/SecuritySetup')->name('security_setup');
         Route::inertia('/invitation', 'Portal/Public/Invitation')->name('invitation');
         Route::inertia('/login', 'Portal/Public/Login')->name('login');

@@ -67,6 +67,16 @@ final class PortalPublicController extends ApiController
             'message' => 'We sent a confirmation link to '.mb_strtolower(trim((string) $data['email'])).'. Open it to continue.']], 202);
     }
 
+    public function resendVerification(Request $request): JsonResponse
+    {
+        $email = mb_strtolower(trim((string) $this->payload($request)['email']));
+        $this->registrations->resendVerification($email);
+
+        // Same answer whether or not a registration is waiting for this address.
+        return response()->json(['data' => ['status' => 'check_your_email',
+            'message' => "If a registration for $email is waiting for confirmation, we sent a new link to it. Earlier links no longer work."]], 202);
+    }
+
     public function verifyEmail(Request $request): JsonResponse
     {
         $data = $this->payload($request);

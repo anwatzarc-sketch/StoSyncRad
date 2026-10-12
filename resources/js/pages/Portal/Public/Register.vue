@@ -5,6 +5,7 @@ import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { ApiError, get, post } from '@/lib/api';
+import ResendVerificationForm from '@/components/portal/ResendVerificationForm.vue';
 
 /**
  * Customer registration (CP-1.1 section 4). The visitor gives their own and their company's details;
@@ -54,6 +55,10 @@ async function submit() {
             <h2 class="text-lg font-semibold">Check your e-mail</h2>
             <p>{{ sent }}</p>
             <p class="text-sm text-ink-muted">Next you will set up two-step verification. Our team then reviews your registration and e-mails you when your account is ready.</p>
+            <details class="text-sm">
+                <summary class="cursor-pointer text-ink-muted underline">No e-mail after a few minutes?</summary>
+                <div class="mt-3"><ResendVerificationForm :email="form.email" compact /></div>
+            </details>
         </div>
 
         <div v-else-if="mode !== 'approval'" class="card mt-6">

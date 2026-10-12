@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import ResendVerificationForm from '@/components/portal/ResendVerificationForm.vue';
 import { post } from '@/lib/api';
 
 /** Landing page of the e-mail confirmation link: proves the address, then continues to two-step verification. */
@@ -28,7 +29,9 @@ onMounted(async () => {
             <p v-if="busy" class="text-sm text-ink-muted" aria-live="polite">One moment.</p>
             <template v-else>
                 <ErrorSummary :error="error" />
-                <Link href="/portal/register" class="btn btn-secondary">Register again</Link>
+                <h2 class="font-semibold">Get a new link</h2>
+                <ResendVerificationForm />
+                <p class="text-sm text-ink-muted">Never registered? <Link href="/portal/register" class="underline">Sign up</Link></p>
             </template>
         </div>
     </div>

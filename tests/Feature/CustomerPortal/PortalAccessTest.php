@@ -122,6 +122,47 @@ final class PortalAccessTest extends TestCase
         $this->getJson('/api/v1/portal/me')->assertOk()->assertJsonPath('data.account.email', $member->email);
     }
 
+    public function test_a_new_confirmation_link_replaces_the_old_one_without_revealing_who_registered(): void
+    {
+        $form = ['full_name' => 'Abel Tesfaye', 'email' => 'abel@pharmacy.example', 'company_name' => 'Abel Pharmacy', 'password' => 'Clinic-Strong-Pass-1',
+            'password_confirmation' => 'Clinic-Strong-Pass-1', 'accept_terms' => true];
+        $this->postJson('/api/v1/portal/public/register', $form)->assertStatus(202);
+        $registration = CustomerRegistration::query()->where('email', 'abel@pharmacy.example')->firstOrFail();
+        $first = $this->lastVerificationToken();
+
+        $unknown = $this->postJson('/api/v1/portal/public/register/resend', ['email' => 'nobody@pharmacy.example'])->assertStatus(202);
+        $this->assertSame($first, $this->lastVerificationToken(), 'nothing is sent for an unknown address');
+        $known = $this->postJson('/api/v1/portal/public/register/resend', ['email' => 'ABEL@pharmacy.example'])->assertStatus(202);
+        $this->assertSame(str_replace('nobody', 'abel', (string) $unknown->json('data.message')), $known->json('data.message'), 'the same answer either way');
+        $second = $this->lastVerificationToken();
+        $this->assertNotSame($first, $second);
+
+        $this->postJson('/api/v1/portal/public/verify-email', ['registration' => $registration->id, 'token' => $first])->assertStatus(422);   // replaced
+        $this->postJson('/api/v1/portal/public/verify-email', ['registration' => $registration->id, 'token' => $second])->assertOk()
+            ->assertJsonPath('data.status', 'pending_mfa');
+
+        // Lost the e-mail before setting up two-step verification: a new link continues the set-up.
+        $this->as(null)->postJson('/api/v1/portal/public/register/resend', ['email' => 'abel@pharmacy.example'])->assertStatus(202);
+        $third = $this->lastVerificationToken();
+        $this->postJson('/api/v1/portal/public/verify-email', ['registration' => $registration->id, 'token' => 'wrong'])->assertStatus(422);
+        $this->postJson('/api/v1/portal/public/verify-email', ['registration' => $registration->id, 'token' => $third])->assertOk()
+            ->assertJsonPath('data.status', 'pending_mfa');
+        $this->postJson('/api/v1/portal/public/security/begin')->assertOk();
+
+        // Three links per address per hour.
+        $this->postJson('/api/v1/portal/public/register/resend', ['email' => 'abel@pharmacy.example'])->assertStatus(202);
+        $this->postJson('/api/v1/portal/public/register/resend', ['email' => 'abel@pharmacy.example'])->assertStatus(429)->assertJsonPath('code', 'RATE_LIMITED');
+        $this->assertSame(3, DB::table('audit_events')->where('event_type', 'portal.registration.verification_resent')->where('subject_id', $registration->id)->count());
+    }
+
+    private function lastVerificationToken(): ?string
+    {
+        $messages = app('mailer')->getSymfonyTransport()->messages();
+        $last = $messages->count() > 0 ? $messages->last()->getOriginalMessage()->getHtmlBody() : '';
+
+        return preg_match('/verify-email\?registration=[0-9a-f-]+&(?:amp;)?token=([A-Za-z0-9]+)/', (string) $last, $m) ? $m[1] : null;
+    }
+
     public function test_self_registration_needs_email_verification_two_step_verification_and_staff_approval(): void
     {
         $form = ['full_name' => 'Hana Bekele', 'email' => 'Hana@NewClinic.example', 'phone' => '+251911000000', 'company_name' => 'New Clinic plc',

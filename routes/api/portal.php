@@ -22,6 +22,8 @@ Route::prefix('portal')->name('portal.')->middleware('portal')->group(function (
     Route::prefix('public')->name('public.')->middleware('throttle:portal-public')->group(function (): void {
         Route::get('info', [PublicPortal::class, 'info'])->name('info');
         Route::post('register', [PublicPortal::class, 'register'])->middleware('throttle:portal-auth')->name('register')->schema(Cps\PortalRegistrationSchema::class);
+        Route::post('register/resend', [PublicPortal::class, 'resendVerification'])->middleware('throttle:portal-auth')->name('register.resend')
+            ->schema(Cps\PortalResendVerificationSchema::class);
         Route::post('verify-email', [PublicPortal::class, 'verifyEmail'])->middleware('throttle:portal-auth')->name('verify_email')->schema(Cps\PortalTokenSchema::class);
         Route::get('invitation', [PublicPortal::class, 'invitation'])->middleware('throttle:portal-auth')->name('invitation');
         Route::post('invitation/accept', [PublicPortal::class, 'acceptInvitation'])->middleware('throttle:portal-auth')->name('invitation.accept')
