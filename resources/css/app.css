@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@source "../js/**/*.{vue,ts}";
+
+/*
+ * White-label tokens (Chapter 12 §12.2): every colour, radius and font comes from the active brand
+ * kit's /brand/theme.css (`--ssr-*`). Components use only these semantic utilities — never a
+ * literal brand colour — so re-branding needs no rebuild.
+ */
+@theme inline {
+    --color-brand: var(--ssr-brand);
+    --color-brand-contrast: var(--ssr-brand-contrast);
+    --color-accent: var(--ssr-accent);
+    --color-accent-contrast: var(--ssr-accent-contrast);
+    --color-surface: var(--ssr-surface);
+    --color-surface-muted: var(--ssr-surface-muted);
+    --color-ink: var(--ssr-text);
+    --color-ink-muted: var(--ssr-text-muted);
+    --color-line: var(--ssr-border);
+    --color-focus: var(--ssr-focus);
+    --color-success: var(--ssr-success);
+    --color-warning: var(--ssr-warning);
+    --color-danger: var(--ssr-danger);
+    --color-info: var(--ssr-info);
+    --color-nav: var(--ssr-nav-background);
+    --color-nav-ink: var(--ssr-nav-text);
+    --radius-brand: var(--ssr-radius);
+    --font-sans: var(--ssr-font);
+}
+
+/* Fallbacks with zero specificity: the brand kit's theme.css always wins. */
+:where(:root) {
+    --ssr-brand: #0f2a47; --ssr-brand-contrast: #ffffff; --ssr-accent: #0e7c7e; --ssr-accent-contrast: #ffffff;
+    --ssr-surface: #ffffff; --ssr-surface-muted: #f3f6f9; --ssr-text: #111827; --ssr-text-muted: #4b5563;
+    --ssr-border: #d9dee5; --ssr-focus: #2563eb; --ssr-success: #15803d; --ssr-warning: #b45309;
+    --ssr-danger: #b91c1c; --ssr-info: #1d4ed8; --ssr-nav-background: #0f2a47; --ssr-nav-text: #e5edf5;
+    --ssr-radius: 0.5rem; --ssr-density: 1;
+    --ssr-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+
+@layer base {
+    html { -webkit-text-size-adjust: 100%; }
+    body { font-family: var(--ssr-font); }
+    :focus-visible { outline: 3px solid var(--ssr-focus); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+}
+
+@layer components {
+    .btn {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-brand px-4 py-2 text-sm font-semibold transition
+               disabled:cursor-not-allowed disabled:opacity-50;
+    }
+    .btn-primary { @apply bg-brand text-brand-contrast hover:opacity-90; }
+    .btn-accent { @apply bg-accent text-accent-contrast hover:opacity-90; }
+    .btn-secondary { @apply border border-line bg-surface text-ink hover:bg-surface-muted; }
+    .btn-danger { @apply bg-danger text-white hover:opacity-90; }
+    .btn-ghost { @apply text-ink hover:bg-surface-muted; }
+    .input {
+        @apply block min-h-11 w-full rounded-brand border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-muted
+               focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus/30 disabled:bg-surface-muted disabled:text-ink-muted;
+    }
+    .input-invalid { @apply border-danger focus:border-danger focus:ring-danger/30; }
+    .card { @apply rounded-brand border border-line bg-surface p-4 shadow-sm; }
+    .label { @apply mb-1 block text-sm font-medium text-ink; }
+    .help { @apply mt-1 text-sm text-ink-muted; }
+    .error-text { @apply mt-1 text-sm text-danger; }
+    .table { @apply w-full border-collapse text-left text-sm; }
+    .table th { @apply border-b border-line bg-surface-muted px-3 py-2 font-semibold text-ink; }
+    .table td { @apply border-b border-line px-3 py-2 align-top; }
+}

@@ -1,0 +1,18 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<p>Warehouse {{ document.warehouse_name }} ({{ document.warehouse_code }}) · {{#if document.is_blind}}Blind count{{else}}Open count{{/if}}{{#if document.snapshot_at}} · Snapshot {{ document.snapshot_at | datetime }}{{/if}}</p>
+<table>
+  <thead><tr><th>#</th><th>Bin</th><th>SKU</th><th>Description</th><th>Lot</th><th>Condition</th>{{#if document.show_book_quantity}}<th class="n">Book</th>{{/if}}<th class="n">Counted</th><th>Initials</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.line_no }}</td><td><strong>{{ l.location }}</strong></td><td>{{ l.sku }}</td><td>{{ l.name }}</td><td>{{ l.lot_number }}</td><td>{{ l.stock_condition }}</td>{{#if document.show_book_quantity}}<td class="n">{{ l.book_quantity | qty }}</td>{{/if}}<td class="n">{{ l.counted_quantity | qty }}</td><td></td></tr>{{/each}}</tbody>
+</table>
+<table class="sign"><tr><td>Counter</td><td>Recounter</td><td>Supervisor</td></tr></table>
+<p class="muted">Printed {{ printed_at | datetime }} by {{ printed_by }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

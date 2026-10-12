@@ -1,0 +1,25 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<table class="grid"><tr>
+  <td><strong>From</strong><br>{{ document.source_name }} ({{ document.source_code }})</td>
+  <td><strong>To</strong><br>{{ document.destination_name }} ({{ document.destination_code }})</td>
+  <td class="n">Transfer {{ document.transfer_number }}<br>Dispatched {{ document.dispatched_at | datetime }}{{#if document.expected_arrival}}<br>Expected {{ document.expected_arrival | datetime }}{{/if}}</td>
+</tr><tr>
+  <td>Carrier: {{ document.carrier_name | default:— }}</td><td>Vehicle: {{ document.vehicle_reference | default:— }} · Seal: {{ document.seal_reference | default:— }}</td><td class="n">Tracking: {{ document.tracking_reference | default:— }}</td>
+</tr></table>
+<p class="muted">Batches listed below are locked in transit and must be verified on receipt.</p>
+<table>
+  <thead><tr><th>SKU</th><th>Description</th><th>Lot / batch</th><th>Expiry</th><th>Serial</th><th>From bin</th><th class="n">Qty</th><th>Unit</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.sku }}</td><td>{{ l.name }}</td><td>{{ l.lot_number }}</td><td>{{ l.expiry_date | date }}</td><td>{{ l.serial_number }}</td><td>{{ l.from_location }}</td><td class="n">{{ l.quantity | qty }}</td><td>{{ l.uom }}</td></tr>{{/each}}</tbody>
+</table>
+<table class="sign"><tr><td>Dispatched by</td><td>Driver / carrier</td><td>Received by</td></tr></table>
+<p class="muted">Printed {{ printed_at | datetime }} by {{ printed_by }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

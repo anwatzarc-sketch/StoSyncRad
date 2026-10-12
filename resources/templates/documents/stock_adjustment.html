@@ -1,0 +1,20 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<table class="grid"><tr><td><strong>Warehouse</strong><br>{{ document.warehouse_name }}</td><td><strong>Type</strong><br>{{ document.adjustment_type }}</td><td class="n">Date: {{ document.document_date | date }}</td></tr></table>
+<p><strong>Justification:</strong> {{ document.reason | nl2br }}</p>
+<table>
+  <thead><tr><th>#</th><th>Bin</th><th>SKU</th><th>Description</th><th>Lot</th><th>Condition</th><th class="n">Qty (±)</th><th class="n">Value</th><th>Reason</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.line_no }}</td><td>{{ l.location }}</td><td>{{ l.sku }}</td><td>{{ l.name }}</td><td>{{ l.lot_number }}</td><td>{{ l.stock_condition }}</td><td class="n">{{ l.quantity | qty }}</td><td class="n">{{ l.value | money }}</td><td>{{ l.reason }}</td></tr>{{/each}}</tbody>
+</table>
+<p class="n"><strong>Total value: {{ document.total_value | money }}</strong></p>
+<table class="sign"><tr><td>Prepared by</td><td>Approved by</td><td>Posted by</td></tr></table>
+<p class="muted">Printed {{ printed_at | datetime }} by {{ printed_by }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

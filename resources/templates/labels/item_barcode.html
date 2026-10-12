@@ -1,0 +1,5 @@
+{{#each labels as l}}<div class="label">
+  <div style="font-size:9px;font-weight:bold">{{ l.name | truncate:38 }}</div>
+  <div>{{ l.barcode | barcode:34 }}</div>
+  <div style="font-size:8px">{{ l.sku }}{{#if l.list_price}} · {{ l.list_price | money }} {{ l.list_price_currency }}{{/if}}</div>
+</div>{{/each}}

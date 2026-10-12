@@ -1,0 +1,24 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<table class="grid">
+  <tr><td><strong>Supplier</strong><br>{{ document.supplier_name }} ({{ document.supplier_code }}){{#if document.supplier_tax_id}}<br>Tax ID {{ document.supplier_tax_id }}{{/if}}{{#if document.supplier_email}}<br>{{ document.supplier_email }}{{/if}}</td>
+      <td><strong>Deliver to</strong><br>{{ document.warehouse_name }} ({{ document.warehouse_code }})</td>
+      <td class="n">Date: {{ document.document_date | date }}<br>Expected: {{ document.expected_delivery_date | date }}<br>Currency: {{ document.currency }}{{#if document.supplier_reference}}<br>Your ref: {{ document.supplier_reference }}{{/if}}</td></tr>
+</table>
+<table>
+  <thead><tr><th>#</th><th>SKU</th><th>Description</th><th class="n">Qty</th><th>Unit</th><th class="n">Unit price</th><th class="n">Disc %</th><th class="n">Tax %</th><th class="n">Total</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.line_no }}</td><td>{{ l.sku }}</td><td>{{ l.name }}</td><td class="n">{{ l.quantity | qty }}</td><td>{{ l.uom }}</td><td class="n">{{ l.unit_price | number:4 }}</td><td class="n">{{ l.discount_percent | number:2 }}</td><td class="n">{{ l.tax_percent | number:2 }}</td><td class="n">{{ l.line_total | money }}</td></tr>{{/each}}</tbody>
+</table>
+<table class="grid"><tr><td></td><td class="n">Subtotal: {{ document.subtotal | money }}<br>Charges: {{ document.charges_total | money }}<br><strong>Total: {{ document.total | money }} {{ document.currency }}</strong></td></tr></table>
+{{#if document.delivery_notes}}<h2>Delivery instructions</h2><p>{{ document.delivery_notes | nl2br }}</p>{{/if}}
+<table class="sign"><tr><td>Prepared by</td><td>Approved by</td><td>Supplier acknowledgement</td></tr></table>
+<p class="muted">Printed {{ printed_at | datetime }} by {{ printed_by }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

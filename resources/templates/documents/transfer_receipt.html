@@ -1,0 +1,18 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<table class="grid"><tr><td><strong>From</strong><br>{{ document.source_name }}</td><td><strong>To</strong><br>{{ document.destination_name }}</td><td class="n">Transfer {{ document.transfer_number }}<br>Received {{ document.received_at | datetime }}</td></tr></table>
+<table>
+  <thead><tr><th>SKU</th><th>Description</th><th>Lot</th><th class="n">Dispatched</th><th class="n">Accepted</th><th class="n">Damaged</th><th class="n">Short</th><th class="n">Excess</th><th>Notes</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.sku }}</td><td>{{ l.name }}</td><td>{{ l.lot_number }}</td><td class="n">{{ l.dispatched_quantity | qty }}</td><td class="n">{{ l.accepted_quantity | qty }}</td><td class="n">{{ l.damaged_quantity | qty }}</td><td class="n">{{ l.shortage_quantity | qty }}</td><td class="n">{{ l.excess_quantity | qty }}</td><td>{{ l.notes }}</td></tr>{{/each}}</tbody>
+</table>
+<table class="sign"><tr><td>Received by</td><td>Verified by</td><td>Carrier</td></tr></table>
+<p class="muted">Printed {{ printed_at | datetime }} by {{ printed_by }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

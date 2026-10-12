@@ -1,0 +1,129 @@
+# StoSyncRad — white-label stock management platform
+
+Multi-branch inventory with company-wide batch/serial traceability: HQ planning → procurement →
+receiving & QC → central ledger → allocation and inter-branch transfers → retail, regional depot and
+e-commerce fulfilment → stocktaking, reporting and re-planning. One codebase serves every client;
+rebranding and configuration are data, not code.
+
+The functional specification is in [`Specs/MasterSpec-2.0/`](Specs/MasterSpec-2.0/00-README.md). This
+file covers running, deploying and extending it.
+
+## What makes it different
+
+- **Platform Setup before anything else.** A fresh deployment answers nothing but `/setup`, health and
+  brand assets until a Super Admin completes and locks a 16-step setup (wizard or headless bundle).
+- **RBAC is entirely data.** Code declares ~350 permissions, each bound to exactly one API endpoint.
+  Roles are permission lists that administrators build; warehouse/branch scope is per assignment.
+  Whether one person may hold several accounts is a company setting.
+- **Everything configurable.** ~210 typed configuration keys with scoped overrides (global → branch →
+  warehouse → category → item), all audited.
+- **Rebrand without a rebuild.** Names, colours, logos, icons, manifest, PDF letterheads and e-mails
+  come from the active brand kit at request time.
+- **Strict data rules.** UUIDv7 keys everywhere; every closed list is a backed enum checked in the
+  database; every write passes a global schema-validation middleware with field-level errors.
+- **An append-only stock ledger.** One posting path, idempotent postings, row-level balance locking,
+  reversals instead of edits, reconciliation against the ledger.
+- **Custom reporting.** A dataset catalog over read-only `reporting.*` views, a report builder, saved
+  and shared definitions, on-screen results and PDF / Excel / CSV exports — each format its own permission.
+
+## Requirements
+
+PHP 8.3+ (`pdo_pgsql`, `pgsql`, `mbstring`, `intl`, `gd` or `imagick`, `zip`, `bcmath`, `openssl`,
+`fileinfo`, `ctype`, `json`, `xml`, `tokenizer`, `curl`), PostgreSQL 16+, Composer, Node 22 LTS (build
+machine only), HTTPS, a scheduler entry running `php artisan schedule:run` every minute, and a queue
+worker for all three queues (`php artisan queue:work --queue=imports,reporting,default`) — a plain
+`queue:work` only serves `default`, so imports and report exports would wait forever.
+
+PostgreSQL needs four roles: **deploy** (owns the schema, runs migrations), **runtime** (the app; no
+DDL, cannot update or delete ledger/audit rows), **reporting** (read-only on `reporting.*` views) and
+**backup**. `php artisan platform:health` verifies the privileges.
+
+## Local development
+
+```bash
+composer install && npm ci
+cp .env.example .env          # set DB_* for your local PostgreSQL roles, APP_URL, APP_ENV=local
+php artisan key:generate
+php artisan migrate --database=pgsql_deploy
+php artisan platform:bootstrap --print-url   # prints a one-time setup link
+npm run dev & php artisan serve
+```
+
+Open the printed `/setup?token=…` link and complete the wizard, or run headless setup (below).
+
+## Deploying a release
+
+Follow Spec Chapter 16 §16.3. In short:
+
+```bash
+php artisan down --secret=<bypass>
+php artisan migrate --database=pgsql_deploy --force
+php artisan platform:upgrade          # permissions, config registry, reporting views, additive seeds, route gates
+php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan event:cache
+php artisan queue:restart
+php artisan platform:health --strict
+php artisan up
+```
+
+## Onboarding a new client (the fast path)
+
+1. Provision PostgreSQL with the four roles, HTTPS hosting and `.env` (infrastructure values only).
+2. Deploy the same artifact as every other client.
+3. Prepare a **brand kit** zip: `brand.json` (names, colours, support and legal text) plus
+   `assets/<kind>.<ext>` (`logo_light`, `logo_dark`, `logo_mark`, `favicon_source`, `pwa_icon_source`, …).
+4. Prepare a **config bundle**: export one from a reference deployment
+   (`php artisan platform:bundle:export --output=bundle.json`) and edit company profile, organization,
+   configuration and roles.
+5. Run headless setup:
+   ```bash
+   php artisan platform:bootstrap
+   php artisan platform:setup --bundle=bundle.json --brand=brandkit.zip
+   ```
+   The Super Admin password is prompted for (or read from `SETUP_SUPERADMIN_PASSWORD_FILE`); MFA
+   enrolment happens at that account's first sign-in.
+6. Verify with `php artisan platform:health --strict`, then load catalog, partners and opening balances
+   through **Imports** (opening balances are drafts until an authorised person posts them).
+
+On a running deployment, `php artisan platform:bundle:import bundle.json` shows a per-section diff;
+add `--apply` to write it. The same is available in Administration → Config bundles.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `platform:bootstrap` | Preflight checks, open setup, print a single-use setup token |
+| `platform:setup --bundle= [--brand=]` | Headless setup from a config bundle, then lock |
+| `platform:upgrade` | Apply a release: permissions, reporting catalog, additive seeds, route gates |
+| `platform:health [--strict] [--json]` | Preflight plus runtime invariants (append-only, roles, queue, outbox, scheduler) |
+| `platform:bundle:export` / `platform:bundle:import [--apply]` | Portable configuration |
+| `permissions:audit-routes` / `schema:audit-routes` | CI gates: every permission bound to an endpoint; every write route validated |
+| `types:export-ts [--check]` | Regenerate `resources/js/types/generated.ts` from the backend registries |
+| `outbox:relay`, `webhooks:deliver`, `reservations:expire`, `reports:purge`, `inventory:expiry-monitor`, `inventory:reconcile` | Scheduled jobs (see `routes/console.php`) |
+
+## Code map
+
+| Path | Contents |
+| --- | --- |
+| `app/Domains/*` | Modular monolith: Catalog, Organization, Partners, IdentityAccess, Inventory (ledger, poster, reservations, valuation), Procurement, Receiving, Transfers, Fulfillment, Stocktaking, Planning, ReportingEngine, Messaging, DataExchange, Platform (setup, config, brand, templates), Audit |
+| `app/Support` | Schema validation, enums, documents, transactions, HTTP middleware |
+| `app/Http/Controllers/Api` | JSON API (`/api/v1`), generic resource CRUD from `ResourceRegistry`, workflow actions |
+| `routes/api/*.php` | One permission per endpoint (`->permission()`), payload schema per write (`->schema()` / `->noBody()`) |
+| `resources/js` | Vue 3 + TypeScript + Inertia PWA: schema-driven forms, app shell, setup wizard, report builder |
+| `database/migrations` | PostgreSQL schema with enum CHECKs, append-only triggers and the reporting views |
+
+## Tests
+
+```bash
+vendor/bin/phpunit        # needs the PostgreSQL test database (see phpunit.xml)
+npx vitest run            # frontend units
+npx vue-tsc --noEmit      # type check
+npm run build             # production bundle + service worker
+```
+
+## Security notes
+
+- Critical permissions require a recent step-up (password or authenticator) on every call; token
+  clients cannot step up, so service accounts should never hold them.
+- Accounts with a pending password change or required MFA enrolment can reach only `/me` and `/auth`.
+- The service worker caches only versioned build assets, brand theme/icons and the offline page —
+  never authenticated pages, API responses, reports or exports, and it never replays writes.

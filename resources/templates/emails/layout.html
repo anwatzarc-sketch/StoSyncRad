@@ -1,0 +1,5 @@
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#1d2433">
+  <div style="border-bottom:3px solid {{ brand.theme.colors.primary | default:#1f4b99 }};padding:12px 0;font-size:18px;font-weight:bold">{{ brand.app_name }}</div>
+  <div style="padding:16px 0">{{ body | nl2br }}</div>
+  <div style="font-size:11px;color:#5b6475;border-top:1px solid #e6e9ef;padding-top:8px">{{ brand.legal_footer }}{{#if brand.support_email}} · {{ brand.support_email }}{{/if}}</div>
+</div>

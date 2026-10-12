@@ -1,0 +1,159 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Domains\Inventory\Services;
+
+use App\Domains\IdentityAccess\Models\UserAccount;
+use App\Domains\Inventory\Enums\ReconciliationFindingStatus;
+use App\Domains\Inventory\Enums\ReconciliationRunStatus;
+use App\Domains\Inventory\Enums\StockCondition;
+use App\Domains\Inventory\Models\ReconciliationFinding;
+use App\Domains\Inventory\Models\ReconciliationRun;
+use App\Domains\Inventory\Posting\BalanceLocker;
+use App\Domains\Inventory\Posting\PositionKey;
+use App\Domains\Organization\Enums\InventoryLocationType;
+use App\Domains\Audit\Services\AuditRecorder;
+use App\Domains\Messaging\Services\Outbox;
+use App\Support\Exceptions\DomainException;
+use App\Support\Exceptions\ErrorCode;
+use App\Support\Math\Decimal as D;
+use App\Support\Sentinel;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Ledger ↔ projection reconciliation (Chapter 07 §7.5): recompute every owned position from the
+ * append-only ledger, record differences, and repair a projection row under a lock with an audit
+ * reason. The ledger itself is never touched.
+ */
+final class ReconciliationService
+{
+    public function __construct(
+        private readonly BalanceLocker $locker,
+        private readonly AuditRecorder $audit,
+        private readonly Outbox $outbox,
+    ) {}
+
+    /** @param  array{warehouse_id?: string, item_ids?: array<int, string>}  $scope */
+    public function run(?UserAccount $actor, array $scope = []): ReconciliationRun
+    {
+        $run = ReconciliationRun::query()->forceCreate(['status' => ReconciliationRunStatus::RUNNING, 'scope' => $scope ?: null,
+            'started_by' => $actor?->id, 'started_at' => now()]);
+        try {
+            $rows = $this->differences($scope);
+            DB::transaction(function () use ($run, $rows, $scope) {
+                foreach ($rows['findings'] as $f) {
+                    ReconciliationFinding::query()->forceCreate(['reconciliation_run_id' => $run->id] + $f + ['status' => ReconciliationFindingStatus::OPEN]);
+                }
+                $run->forceFill([
+                    'status' => $rows['findings'] === [] ? ReconciliationRunStatus::COMPLETED_CLEAN : ReconciliationRunStatus::COMPLETED_WITH_FINDINGS,
+                    'positions_checked' => $rows['checked'], 'findings_count' => count($rows['findings']), 'finished_at' => now(),
+                ])->save();
+            });
+        } catch (\Throwable $e) {
+            $run->forceFill(['status' => ReconciliationRunStatus::FAILED, 'error' => mb_substr($e->getMessage(), 0, 2000), 'finished_at' => now()])->save();
+            throw $e;
+        }
+        $this->audit->record($actor, 'inventory.reconciliation.completed', 'reconciliation_runs', $run->id, null,
+            ['status' => $run->status->value, 'findings' => $run->findings_count, 'positions' => $run->positions_checked]);
+        if ($run->findings_count > 0) {
+            $this->outbox->publish('inventory.reconciliation.findings', 'reconciliation_runs', $run->id, ['findings' => $run->findings_count]);
+        }
+
+        return $run->refresh();
+    }
+
+    /** Set the projection of a finding's position to the ledger quantity (recomputed now, under lock). */
+    public function repair(string $findingId, UserAccount $actor, string $reason): ReconciliationFinding
+    {
+        if (trim($reason) === '') {
+            throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'A repair needs a reason.', ['field' => 'reason']);
+        }
+
+        return DB::transaction(function () use ($findingId, $actor, $reason) {
+            $finding = ReconciliationFinding::query()->lockForUpdate()->findOrFail($findingId);
+            if (! in_array($finding->status, [ReconciliationFindingStatus::OPEN, ReconciliationFindingStatus::INVESTIGATING], true)) {
+                throw DomainException::of(ErrorCode::INVALID_STATE_TRANSITION, 'This finding is already closed.');
+            }
+            $key = new PositionKey($finding->item_id, Sentinel::toNull($finding->item_variant_id), $finding->inventory_location_id,
+                Sentinel::toNull($finding->inventory_lot_id), StockCondition::from($finding->stock_condition));
+            $warehouseId = DB::table('inventory_locations')->where('id', $finding->inventory_location_id)->value('warehouse_id');
+            $balance = $this->locker->lock([$key], [$key->locationId => $warehouseId])[$key->sortKey()];
+            $ledger = $this->ledgerQuantity($key);
+            $before = (string) $balance->quantity_on_hand;
+            DB::update('UPDATE inventory_balances SET quantity_on_hand = ?, version = version + 1, updated_at = ? WHERE id = ?', [$ledger, now(), $balance->id]);
+            $finding->forceFill(['status' => ReconciliationFindingStatus::REPAIRED, 'resolved_by' => $actor->id, 'resolved_at' => now(), 'resolution_note' => $reason])->save();
+            $this->audit->record($actor, 'inventory.projection.repaired', 'inventory_balances', $balance->id, ['quantity_on_hand' => $before], ['quantity_on_hand' => $ledger], $reason);
+
+            return $finding;
+        });
+    }
+
+    /**
+     * @param  array{warehouse_id?: string, item_ids?: array<int, string>}  $scope
+     * @return array{checked: int, findings: array<int, array<string, mixed>>}
+     */
+    private function differences(array $scope): array
+    {
+        $owned = array_map(fn (InventoryLocationType $t) => $t->value, array_filter(InventoryLocationType::cases(), fn ($t) => $t->holdsOwnedStock()));
+        $s = Sentinel::UUID;
+        $filters = '';
+        $bindings = [$s, $s, $s, $s];
+        if (! empty($scope['item_ids'])) {
+            $filters .= ' AND ml.item_id IN ('.implode(',', array_fill(0, count($scope['item_ids']), '?')).')';
+            array_push($bindings, ...$scope['item_ids']);
+        }
+        $ledgerSql = "SELECT x.item_id, x.variant_id, x.location_id, x.lot_id, x.cond, SUM(x.q) AS q FROM (
+                SELECT ml.item_id, COALESCE(ml.item_variant_id, ?::uuid) AS variant_id, ml.destination_inventory_location_id AS location_id,
+                       COALESCE(ml.inventory_lot_id, ?::uuid) AS lot_id, ml.destination_condition AS cond, ml.quantity AS q
+                  FROM stock_movement_lines ml WHERE true $filters
+                UNION ALL
+                SELECT ml.item_id, COALESCE(ml.item_variant_id, ?::uuid), ml.source_inventory_location_id,
+                       COALESCE(ml.inventory_lot_id, ?::uuid), ml.source_condition, -ml.quantity
+                  FROM stock_movement_lines ml WHERE true $filters
+            ) x JOIN inventory_locations il ON il.id = x.location_id AND il.location_type IN ('".implode("','", $owned)."')
+            GROUP BY x.item_id, x.variant_id, x.location_id, x.lot_id, x.cond";
+        $bindings = array_merge([$s, $s], $scope['item_ids'] ?? [], [$s, $s], $scope['item_ids'] ?? []);
+        $balanceFilter = '';
+        $balanceBindings = [];
+        if (! empty($scope['warehouse_id'])) {
+            $balanceFilter .= ' AND (b.warehouse_id = ? OR l.location_id IN (SELECT id FROM inventory_locations WHERE warehouse_id = ?))';
+            array_push($balanceBindings, $scope['warehouse_id'], $scope['warehouse_id']);
+        }
+        if (! empty($scope['item_ids'])) {
+            $balanceFilter .= ' AND COALESCE(b.item_id, l.item_id) IN ('.implode(',', array_fill(0, count($scope['item_ids']), '?')).')';
+            array_push($balanceBindings, ...$scope['item_ids']);
+        }
+        $sql = "WITH l AS ($ledgerSql)
+            SELECT COALESCE(b.item_id, l.item_id) AS item_id, COALESCE(b.item_variant_id, l.variant_id) AS item_variant_id,
+                   COALESCE(b.inventory_location_id, l.location_id) AS inventory_location_id, COALESCE(b.inventory_lot_id, l.lot_id) AS inventory_lot_id,
+                   COALESCE(b.stock_condition, l.cond) AS stock_condition, COALESCE(l.q, 0) AS ledger_quantity, COALESCE(b.quantity_on_hand, 0) AS projection_quantity
+              FROM l FULL OUTER JOIN (SELECT * FROM inventory_balances WHERE owner_partner_id = '$s' AND package_id = '$s') b
+                ON b.item_id = l.item_id AND b.item_variant_id = l.variant_id AND b.inventory_location_id = l.location_id
+               AND b.inventory_lot_id = l.lot_id AND b.stock_condition = l.cond
+             WHERE true $balanceFilter";
+        $rows = DB::select($sql, array_merge($bindings, $balanceBindings));
+        $findings = [];
+        foreach ($rows as $r) {
+            $diff = D::sub((string) $r->projection_quantity, (string) $r->ledger_quantity);
+            if (! D::isZero($diff)) {
+                $findings[] = ['item_id' => $r->item_id, 'item_variant_id' => $r->item_variant_id, 'inventory_location_id' => $r->inventory_location_id,
+                    'inventory_lot_id' => $r->inventory_lot_id, 'stock_condition' => $r->stock_condition, 'ledger_quantity' => D::exact((string) $r->ledger_quantity),
+                    'projection_quantity' => D::exact((string) $r->projection_quantity), 'difference' => $diff];
+            }
+        }
+
+        return ['checked' => count($rows), 'findings' => $findings];
+    }
+
+    private function ledgerQuantity(PositionKey $key): string
+    {
+        $match = fn (string $side) => DB::table('stock_movement_lines')->where('item_id', $key->itemId)
+            ->where("{$side}_inventory_location_id", $key->locationId)->where("{$side}_condition", $key->condition->value)
+            ->where(fn ($q) => Sentinel::is($key->variantId) ? $q->whereNull('item_variant_id') : $q->where('item_variant_id', $key->variantId))
+            ->where(fn ($q) => Sentinel::is($key->lotId) ? $q->whereNull('inventory_lot_id') : $q->where('inventory_lot_id', $key->lotId))
+            ->sum('quantity');
+
+        return D::sub((string) $match('destination'), (string) $match('source'));
+    }
+}

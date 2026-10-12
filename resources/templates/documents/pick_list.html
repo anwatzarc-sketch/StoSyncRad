@@ -1,0 +1,18 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<p>Warehouse {{ document.warehouse_name }} ({{ document.warehouse_code }}) · Lines are in walking order.</p>
+<table>
+  <thead><tr><th>#</th><th>Bin</th><th>SKU</th><th>Description</th><th>Lot</th><th>Expiry</th><th>Serial</th><th class="n">Pick</th><th>Unit</th><th>Picked ✓</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ @number }}</td><td><strong>{{ l.location }}</strong></td><td>{{ l.sku }}</td><td>{{ l.name }}</td><td>{{ l.lot_number }}</td><td>{{ l.expiry_date | date }}</td><td>{{ l.serial_number }}</td><td class="n">{{ l.quantity | qty }}</td><td>{{ l.uom }}</td><td></td></tr>{{/each}}</tbody>
+</table>
+<table class="sign"><tr><td>Picker</td><td>Checked by</td><td></td></tr></table>
+<p class="muted">Printed {{ printed_at | datetime }} by {{ printed_by }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>
