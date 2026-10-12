@@ -141,14 +141,17 @@ export async function api<T = any>(path: string, opts: ApiOptions = {}): Promise
     }
     const payload = await res.json().catch(() => ({}));
     const error = new ApiError(res.status, payload);
-    if (error.code === 'UNAUTHENTICATED' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/setup')) {
-        window.location.assign('/login');
+    const portal = window.location.pathname.startsWith('/portal');
+    const publicPortal = portal && !/^\/portal\/(dashboard|catalog|cart|quotations|orders|invoices|payments|account|team)/.test(window.location.pathname);
+    if (error.code === 'UNAUTHENTICATED' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/setup') && !publicPortal) {
+        window.location.assign(portal ? '/portal/login' : '/login');
     }
     if (error.code === 'STEP_UP_REQUIRED' && !opts.noStepUp && (await requestStepUp())) {
         return api<T>(path, { ...opts, noStepUp: true });
     }
-    if ((error.code === 'PASSWORD_CHANGE_REQUIRED' || error.code === 'MFA_ENROLLMENT_REQUIRED') && !window.location.pathname.startsWith('/account')) {
-        window.location.assign(`/account?required=${error.code}`);
+    const accountPage = portal ? '/portal/account' : '/account';
+    if ((error.code === 'PASSWORD_CHANGE_REQUIRED' || error.code === 'MFA_ENROLLMENT_REQUIRED') && !window.location.pathname.startsWith(accountPage)) {
+        window.location.assign(`${accountPage}?required=${error.code}`);
     }
     throw error;
 }

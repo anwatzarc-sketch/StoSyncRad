@@ -26,7 +26,7 @@ final class DecisionSchema extends TableSchema
             'comment' => Property::text(2000)->nullable()->trim()->virtual()->label('Comment'),
             'reason' => Property::text(2000)->nullable()->trim()->virtual()->label('Reason'),
             'reason_lookup_value_id' => Property::uuid()->nullable()->references(LookupValue::class)->virtual()->label('Reason code'),
-            'override_reason' => Property::text(2000)->nullable()->trim()->virtual()->label('SoD override reason'),
+            'override_reason' => Property::text(2000)->nullable()->trim()->virtual()->label('Override reason', 'Needed to override segregation of duties or a customer credit limit.'),
         ];
     }
 }

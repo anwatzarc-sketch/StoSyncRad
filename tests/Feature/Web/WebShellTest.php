@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Web;
 
+use App\Domains\Messaging\Services\NotificationRouter;
 use App\Domains\Platform\Enums\PlatformSetupState;
+use App\Domains\Platform\Services\BrandKitService;
+use App\Domains\Platform\Services\BrandResolver;
 use App\Domains\Platform\Services\SetupState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\BuildsActors;
 use Tests\Support\BuildsInventory;
+use Tests\Support\BuildsPortal;
 use Tests\TestCase;
 
 /** Chapter 12 — app shell: pages, sign-in redirect, security headers, server-filtered navigation and actions. */
@@ -18,6 +22,7 @@ final class WebShellTest extends TestCase
 {
     use BuildsActors;
     use BuildsInventory;
+    use BuildsPortal;
 
     protected function setUp(): void
     {
@@ -46,9 +51,9 @@ final class WebShellTest extends TestCase
         DB::table('company_profile')->delete();
         DB::table('company_profile')->insert(['id' => (string) Str::uuid7(), 'legal_name' => 'Acme Trading plc', 'trading_name' => 'Acme Pharma',
             'base_currency' => 'ETB', 'created_at' => now(), 'updated_at' => now()]);
-        app(\App\Domains\Platform\Services\BrandKitService::class)->createAndActivate(['app_name' => 'Acme Stock', 'app_short_name' => 'Acme',
+        app(BrandKitService::class)->createAndActivate(['app_name' => 'Acme Stock', 'app_short_name' => 'Acme',
             'legal_footer' => 'Acme Pharma, Addis Ababa', 'theme' => ['colors' => ['brand' => '#7a1f1f', 'nav_background' => '#7a1f1f']]], null);
-        app(\App\Domains\Platform\Services\BrandResolver::class)->forget();
+        app(BrandResolver::class)->forget();
         $product = config('product');
 
         $this->get('/login')->assertOk()->assertInertia(fn (Assert $page) => $page
@@ -95,12 +100,17 @@ final class WebShellTest extends TestCase
 
     public function test_every_notification_link_opens_an_existing_page(): void
     {
+        $this->enablePortal($this->warehouse('NL'.Str::upper(Str::random(4))));
         $admin = $this->superAdmin()->refresh();   // fully loaded, as after a real sign-in
-        foreach (\App\Domains\Messaging\Services\NotificationRouter::ROUTES as $event => $route) {
-            $link = str_replace('{aggregate_id}', (string) Str::uuid7(), $route[5]);
+        $customer = $this->customerMember($this->customerPartner());
+        foreach (NotificationRouter::ROUTES as $event => $route) {
+            $link = preg_replace('/\{[a-z_]+_id\}/', (string) Str::uuid7(), $route[5]);
             $this->assertStringNotContainsString('{', $link, "$event: unresolved placeholder in $link");
-            $response = $this->actingAs($admin, 'web')->get($link);
-            $this->assertSame(200, $response->getStatusCode(), "$event links to $link, which answers {$response->getStatusCode()} ".($response->exception?->getMessage() ?? ""));
+            // Customer notifications open customer pages; their records are fetched (and checked) by the page.
+            $this->app['auth']->forgetGuards();
+            $this->flushSession();
+            $response = $this->actingAs(str_starts_with($link, '/portal/') ? $customer : $admin, 'web')->get($link);
+            $this->assertSame(200, $response->getStatusCode(), "$event links to $link, which answers {$response->getStatusCode()} ".($response->exception?->getMessage() ?? ''));
         }
     }
 }

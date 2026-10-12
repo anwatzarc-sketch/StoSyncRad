@@ -4,6 +4,8 @@ import { createInertiaApp } from '@inertiajs/vue3';
 import AppLayout from './layouts/AppLayout.vue';
 import AuthLayout from './layouts/AuthLayout.vue';
 import SetupLayout from './layouts/SetupLayout.vue';
+import PortalLayout from './layouts/PortalLayout.vue';
+import PublicLayout from './layouts/PublicLayout.vue';
 import { configureFormatting } from './lib/format';
 import { registerServiceWorker } from './lib/pwa';
 import type { SharedProps } from './types/shared';
@@ -26,7 +28,8 @@ createInertiaApp({
 
         return module.default;
     },
-    layout: (name) => (name.startsWith('Setup/') ? SetupLayout : name.startsWith('Auth/') ? AuthLayout : AppLayout),
+    layout: (name) => (name.startsWith('Setup/') ? SetupLayout : name.startsWith('Auth/') ? AuthLayout
+        : name.startsWith('Portal/Public/') ? PublicLayout : name.startsWith('Portal/') ? PortalLayout : AppLayout),
     setup({ el, App, props, plugin }) {
         configureFormatting((props.initialPage.props as unknown as SharedProps).locale);
         createApp({ render: () => h(App, props) }).use(plugin).mount(el);

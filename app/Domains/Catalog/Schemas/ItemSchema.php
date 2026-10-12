@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Catalog\Schemas;
 
+use App\Domains\Billing\Models\TaxRate;
 use App\Domains\Catalog\Enums\AbcClass;
 use App\Domains\Catalog\Enums\CostingMethod;
 use App\Domains\Catalog\Enums\ExpiryPolicy;
@@ -127,6 +128,7 @@ final class ItemSchema extends TableSchema
             // D.7 Sales (stock-side)
             'list_price' => Property::money()->nullable()->nonNegative()->label('List price'),
             'list_price_currency' => Property::string(3)->nullable()->pattern('/^[A-Z]{3}$/')->label('List price currency'),
+            'tax_rate_id' => Property::uuid()->nullable()->references(TaxRate::class, 'is_active', [true])->label('Tax rate', 'Blank = the default tax rate.'),
             'sales_description' => Property::string(500)->nullable()->label('Sales description'),
             'sales_warning_lookup_value_id' => Property::uuid()->nullable()->references(LookupValue::class)->label('Sales warning'),
             'sales_warning_mode' => Property::enum(WarningMode::class)->default(WarningMode::NONE->value)->label('Sales warning mode'),

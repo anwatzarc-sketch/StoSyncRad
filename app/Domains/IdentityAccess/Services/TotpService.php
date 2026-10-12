@@ -113,6 +113,44 @@ final class TotpService
         SecurityEvent::log(SecurityEventType::MFA_RESET, $account->id);
     }
 
+    /**
+     * A candidate secret for replacing an enrolled authenticator. Nothing is stored: the caller keeps
+     * the secret (e.g. in the session) until replace() confirms it, so the current authenticator keeps
+     * working if the change is abandoned.
+     *
+     * @return array{secret: string, otpauth_uri: string, qr_svg: string}
+     */
+    public function candidate(UserAccount $account): array
+    {
+        $secret = $this->engine->generateSecretKey(32);
+        $uri = $this->engine->getQRCodeUrl($this->brand->publicProfile()['app_name'] ?? 'Stock', $account->email ?: $account->username, $secret);
+
+        return ['secret' => $secret, 'otpauth_uri' => $uri, 'qr_svg' => (new Writer(new ImageRenderer(new RendererStyle(220, 1), new SvgImageBackEnd)))->writeString($uri)];
+    }
+
+    /**
+     * Switch to a new authenticator once its first code is valid; returns new recovery codes (the old
+     * ones stop working). Null when the code does not match the candidate secret.
+     *
+     * @return array<int, string>|null
+     */
+    public function replace(UserAccount $account, string $secret, string $code): ?array
+    {
+        if ($this->engine->verifyKey($secret, preg_replace('/\s+/', '', $code) ?? '', 1) === false) {
+            return null;
+        }
+        $codes = $this->newRecoveryCodes();
+        MfaCredential::query()->updateOrCreate(['user_account_id' => $account->id], [
+            'secret' => $secret, 'recovery_code_hashes' => array_map(static fn (string $c) => Hash::make($c), $codes),
+            'confirmed_at' => now(), 'last_used_at' => now(), 'last_used_counter' => $this->engine->getTimestamp(),   // the confirming code cannot be replayed
+        ]);
+        $account->forceFill(['mfa_status' => MfaStatus::ENROLLED])->save();
+        DB::table('trusted_devices')->where('user_account_id', $account->id)->delete();
+        SecurityEvent::log(SecurityEventType::MFA_ENROLLED, $account->id, null, ['replaced' => true]);
+
+        return $codes;
+    }
+
     public function isEnrolled(UserAccount $account): bool
     {
         return MfaCredential::query()->where('user_account_id', $account->id)->whereNotNull('confirmed_at')->exists();

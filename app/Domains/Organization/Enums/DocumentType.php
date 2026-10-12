@@ -38,6 +38,10 @@ enum DocumentType: string implements SystemEnum
     case OPENING_BALANCE = 'opening_balance';
     case STOCK_MOVEMENT = 'stock_movement';
     case RECALL = 'recall';
+    case QUOTATION = 'quotation';
+    case INVOICE = 'invoice';
+    case PAYMENT = 'payment';
+    case PAYMENT_CONFIRMATION = 'payment_confirmation';
 
     /** Default numbering prefix seeded in Setup Step 10. */
     public function defaultPrefix(): string
@@ -67,6 +71,10 @@ enum DocumentType: string implements SystemEnum
             self::OPENING_BALANCE => 'OPB',
             self::STOCK_MOVEMENT => 'MOV',
             self::RECALL => 'RCL',
+            self::QUOTATION => 'QUO',
+            self::INVOICE => 'INV',
+            self::PAYMENT => 'RCT',
+            self::PAYMENT_CONFIRMATION => 'PCF',
         };
     }
 }

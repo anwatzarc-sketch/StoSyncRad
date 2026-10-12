@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { post } from '@/lib/api';
 
 const params = new URLSearchParams(window.location.search);
@@ -48,11 +49,11 @@ async function submit() {
         </div>
         <div>
             <label for="new-password" class="label">New password</label>
-            <input id="new-password" v-model="password" class="input" type="password" autocomplete="new-password" required>
+            <PasswordInput id="new-password" v-model="password" generate autocomplete="new-password" required @generated="confirm = $event" />
         </div>
         <div>
             <label for="confirm-password" class="label">Repeat the new password</label>
-            <input id="confirm-password" v-model="confirm" class="input" type="password" autocomplete="new-password" required>
+            <PasswordInput id="confirm-password" v-model="confirm" autocomplete="new-password" required />
         </div>
         <UiButton variant="primary" type="submit" class="w-full" :loading="busy" :disabled="!token">Save password</UiButton>
         <p v-if="!token" class="error-text">This link is incomplete. Request a new one from the sign-in page.</p>

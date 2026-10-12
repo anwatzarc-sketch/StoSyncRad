@@ -45,6 +45,9 @@ final class AssignRoleAction
             $scope = AssignmentScopeType::from($data['scope_type']);
             $scopeId = $scope === AssignmentScopeType::COMPANY ? null : ($data['scope_id'] ?? null);
 
+            if ($account->isCustomer()) {
+                throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'Customer portal accounts get their access from their customer membership, not from staff roles.');
+            }
             if ($role->is_system || $role->code === Role::SUPER_ADMIN_CODE) {
                 throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'The super-administrator role cannot be assigned.');
             }

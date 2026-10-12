@@ -56,6 +56,16 @@ final class Navigation
             ['label' => 'Transfers', 'resource' => 'transfers'],
             ['label' => 'Discrepancies', 'resource' => 'transfer-discrepancies'],
         ]],
+        ['key' => 'commerce', 'label' => 'Customers & billing', 'icon' => 'users', 'items' => [
+            ['label' => 'Customer registrations', 'resource' => 'customer-registrations'],
+            ['label' => 'Customer invitations', 'resource' => 'customer-invitations'],
+            ['label' => 'Quotations', 'resource' => 'quotations'],
+            ['label' => 'Invoices', 'resource' => 'invoices'],
+            ['label' => 'Payment confirmations', 'resource' => 'payment-confirmations'],
+            ['label' => 'Payments', 'resource' => 'payments'],
+            ['label' => 'Tax rates', 'resource' => 'tax-rates'],
+            ['label' => 'Delivery issues', 'resource' => 'delivery-acknowledgements'],
+        ]],
         ['key' => 'operations', 'label' => 'Stock operations', 'icon' => 'clipboard', 'items' => [
             ['label' => 'Stock requests', 'resource' => 'stock-requests'],
             ['label' => 'Stock issues', 'resource' => 'stock-issues'],

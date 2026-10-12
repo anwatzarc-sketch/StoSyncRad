@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import PasswordInput from '@/components/ui/PasswordInput.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
 import EnumSelect from '@/components/ui/EnumSelect.vue';
 import SchemaForm from '@/components/schema/SchemaForm.vue';
@@ -297,8 +298,8 @@ watch(() => state.value.authorized, (ok) => ok && void loadEnums().catch(() => u
                 </div>
                 <div>
                     <label for="si-password" class="label">Password</label>
-                    <input id="si-password" v-model="credentials.password" type="password" class="input" autocomplete="current-password" required
-                           :class="{ 'input-invalid': fieldErrors.password }">
+                    <PasswordInput id="si-password" v-model="credentials.password" autocomplete="current-password" required
+                                   :class="{ 'input-invalid': fieldErrors.password }" />
                     <p v-if="fieldErrors.password" class="error-text" role="alert">{{ fieldErrors.password }}</p>
                 </div>
                 <div>
@@ -353,8 +354,11 @@ watch(() => state.value.authorized, (ok) => ok && void loadEnums().catch(() => u
                             <div><label for="a-email" class="label">Email *</label><input id="a-email" v-model="admin.email" type="email" class="input" autocomplete="email"></div>
                             <div><label for="a-user" class="label">Username (defaults to email)</label><input id="a-user" v-model="admin.username" class="input" autocomplete="username"></div>
                             <div />
-                            <div><label for="a-pass" class="label">Password *</label><input id="a-pass" v-model="admin.password" type="password" class="input" autocomplete="new-password"></div>
-                            <div><label for="a-pass2" class="label">Repeat password *</label><input id="a-pass2" v-model="admin.confirm" type="password" class="input" autocomplete="new-password"></div>
+                            <div>
+                                <label for="a-pass" class="label">Password *</label>
+                                <PasswordInput id="a-pass" v-model="admin.password" generate autocomplete="new-password" @generated="admin.confirm = $event" />
+                            </div>
+                            <div><label for="a-pass2" class="label">Repeat password *</label><PasswordInput id="a-pass2" v-model="admin.confirm" autocomplete="new-password" /></div>
                         </div>
                         <div v-if="current.mfa_required" class="space-y-3 rounded-brand border border-line p-4">
                             <p class="text-sm font-semibold">Two-step verification is required for the Super Admin.</p>
@@ -480,8 +484,8 @@ watch(() => state.value.authorized, (ok) => ok && void loadEnums().catch(() => u
                     <div v-if="active === 'identity_security'" class="space-y-4 rounded-brand border border-line p-4">
                         <div class="max-w-md">
                             <label for="id-current" class="label">Your current password <span class="text-danger">*</span></label>
-                            <input id="id-current" v-model="identity.current_password" type="password" class="input" autocomplete="off"
-                                   :class="{ 'input-invalid': fieldErrors.current_password }" aria-describedby="id-current-help">
+                            <PasswordInput id="id-current" v-model="identity.current_password" autocomplete="off"
+                                           :class="{ 'input-invalid': fieldErrors.current_password }" aria-describedby="id-current-help" />
                             <p v-if="fieldErrors.current_password" class="error-text" role="alert">{{ fieldErrors.current_password }}</p>
                             <p v-else id="id-current-help" class="help">The Super Admin password you chose in step 2 — it confirms these security settings.</p>
                         </div>
@@ -489,14 +493,14 @@ watch(() => state.value.authorized, (ok) => ok && void loadEnums().catch(() => u
                             <legend class="label md:col-span-2">Change my password (optional — required only if the policy above rejects your current one)</legend>
                             <div>
                                 <label for="id-new" class="label">New password</label>
-                                <input id="id-new" v-model="identity.new_password" type="password" class="input" autocomplete="new-password"
-                                       :class="{ 'input-invalid': fieldErrors.new_password }">
+                                <PasswordInput id="id-new" v-model="identity.new_password" generate autocomplete="new-password"
+                                               :class="{ 'input-invalid': fieldErrors.new_password }" @generated="identity.new_password_confirmation = $event" />
                                 <p v-if="fieldErrors.new_password" class="error-text" role="alert">{{ fieldErrors.new_password }}</p>
                             </div>
                             <div>
                                 <label for="id-new-confirm" class="label">Repeat the new password</label>
-                                <input id="id-new-confirm" v-model="identity.new_password_confirmation" type="password" class="input" autocomplete="new-password"
-                                       :disabled="!identity.new_password" :class="{ 'input-invalid': fieldErrors.new_password_confirmation }">
+                                <PasswordInput id="id-new-confirm" v-model="identity.new_password_confirmation" autocomplete="new-password"
+                                               :disabled="!identity.new_password" :class="{ 'input-invalid': fieldErrors.new_password_confirmation }" />
                                 <p v-if="fieldErrors.new_password_confirmation" class="error-text" role="alert">{{ fieldErrors.new_password_confirmation }}</p>
                             </div>
                         </fieldset>

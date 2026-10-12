@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Domains\IdentityAccess\Actions;
 
 use App\Domains\Audit\Services\AuditRecorder;
-use App\Domains\IdentityAccess\Enums\AccountStatus;
 use App\Domains\IdentityAccess\Enums\AccountsPerPersonPolicy;
+use App\Domains\IdentityAccess\Enums\AccountStatus;
 use App\Domains\IdentityAccess\Enums\AccountType;
 use App\Domains\IdentityAccess\Enums\MfaStatus;
 use App\Domains\IdentityAccess\Enums\PersonStatus;
@@ -34,9 +34,13 @@ final class CreateUserAccountAction
     ) {}
 
     /** @param  array<string, mixed>  $data  validated against UserAccountSchema */
-    public function execute(array $data, ?UserAccount $actor, bool $activate = true, bool $superAdmin = false): UserAccount
+    /**
+     * `$customerPartnerId`/`$portal` are used only by the Customer Portal services (registration and
+     * invitations); staff screens cannot create customer accounts.
+     */
+    public function execute(array $data, ?UserAccount $actor, bool $activate = true, bool $superAdmin = false, bool $portal = false, ?string $customerPartnerId = null): UserAccount
     {
-        return DB::transaction(function () use ($data, $actor, $activate, $superAdmin) {
+        return DB::transaction(function () use ($data, $actor, $activate, $superAdmin, $portal, $customerPartnerId) {
             /** @var Person $person */
             $person = Person::query()->lockForUpdate()->findOrFail($data['person_id']);
             if ($person->status !== PersonStatus::ACTIVE) {
@@ -44,6 +48,11 @@ final class CreateUserAccountAction
             }
 
             $type = AccountType::from($data['account_type'] ?? AccountType::HUMAN->value);
+            if (($type === AccountType::CUSTOMER) !== $portal || ($type === AccountType::CUSTOMER && $superAdmin)) {
+                throw DomainException::of(ErrorCode::POLICY_VIOLATION, $type === AccountType::CUSTOMER
+                    ? 'Customer accounts are created through customer registration or invitations.'
+                    : 'Only customer accounts are created by the customer portal.', ['field' => 'account_type']);
+            }
             if ($type === AccountType::SERVICE && ! $this->config->bool('identity.service_accounts_enabled')) {
                 throw DomainException::of(ErrorCode::FEATURE_DISABLED, 'Service accounts are disabled for this deployment.');
             }
@@ -68,10 +77,11 @@ final class CreateUserAccountAction
                 'email' => strtolower((string) $data['email']),
                 'account_type' => $type,
                 'must_change_password' => (bool) ($data['must_change_password'] ?? false),
+                'customer_partner_id' => $type === AccountType::CUSTOMER ? $customerPartnerId : null,
                 'created_by' => $actor?->id,
                 'updated_by' => $actor?->id,
             ]);
-            if ($type === AccountType::HUMAN && ! empty($data['password'])) {
+            if ($type !== AccountType::SERVICE && ! empty($data['password'])) {
                 $this->passwords->assertAcceptable((string) $data['password'], $account);
                 $account->password_hash = $this->passwords->hash((string) $data['password']);
                 $account->password_changed_at = now();

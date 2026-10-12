@@ -11,16 +11,16 @@ use App\Support\Enums\EnumLabelResolver;
 use App\Support\Enums\EnumRegistry;
 use App\Support\Schema\SchemaRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Database\Events\TransactionRolledBack;
-use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -47,6 +47,11 @@ final class PlatformServiceProvider extends ServiceProvider
         // route would share a single per-IP counter.
         RateLimiter::for('setup', fn (Request $request) => Limit::perMinute(240)->by('setup|'.$request->ip()));
         RateLimiter::for('setup-auth', fn (Request $request) => Limit::perMinute(10)->by('setup-auth|'.$request->ip()));
+        // Customer portal: visitors per IP; sign-in/registration steps per IP and step; customer actions per account and action.
+        RateLimiter::for('portal-public', fn (Request $request) => Limit::perMinute(120)->by('portal-public|'.$request->ip()));
+        RateLimiter::for('portal-auth', fn (Request $request) => Limit::perMinute(10)->by('portal-auth|'.$request->route()?->getName().'|'.$request->ip()));
+        RateLimiter::for('portal-action', fn (Request $request) => Limit::perMinute(30)
+            ->by('portal-action|'.$request->route()?->getName().'|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
         // Settings read inside a transaction that is then rolled back must not survive it.
         Event::listen(TransactionRolledBack::class, fn () => $this->app->make(PlatformConfig::class)->forget());
@@ -107,6 +112,14 @@ final class PlatformServiceProvider extends ServiceProvider
         Route::macro('noBody', function (): Route {
             /** @var Route $this */
             $this->action['no_body'] = true;
+
+            return $this;
+        });
+
+        /* The record page has its own control for this endpoint (e.g. a photo uploader), so it is not offered as a generic action. */
+        Route::macro('ownScreen', function (): Route {
+            /** @var Route $this */
+            $this->action['own_screen'] = true;
 
             return $this;
         });

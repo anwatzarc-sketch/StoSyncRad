@@ -10,6 +10,7 @@ use App\Domains\Messaging\Models\OutboxEvent;
 use App\Domains\Messaging\Models\WebhookDelivery;
 use App\Domains\Messaging\Models\WebhookEndpoint;
 use App\Domains\Messaging\Services\OutboxRelay;
+use App\Domains\Messaging\Services\TransactionalMailer;
 use App\Domains\Messaging\Services\WebhookService;
 use App\Domains\Platform\Config\ConfigRegistry;
 use App\Domains\Platform\Config\ConfigScopeType;
@@ -75,6 +76,21 @@ final class AdminController extends ApiController
 
         return response()->json(['data' => ['key' => $key, 'scope_type' => $scope->value, 'scope_id' => $request->input('scope_id'),
             'version' => $entry->version ?? null, 'effective' => $definition->sensitive ? '••••••' : $this->presenter()->data($this->config->get($key))]]);
+    }
+
+    /** Send a test e-mail with the current settings; the transport error is returned when delivery fails. */
+    public function testMail(Request $request, TransactionalMailer $mailer): JsonResponse
+    {
+        $to = (string) $this->payload($request)['to'];
+        try {
+            $result = $mailer->test($to);
+        } catch (\Throwable $e) {
+            throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'The test e-mail could not be sent: '.mb_substr($e->getMessage(), 0, 300),
+                ['transport' => $mailer->transport()->value], 'Check the SMTP server, port, security, username and password (for Gmail use an app password).');
+        }
+        $this->audit->record($this->actor($request), 'platform.mail.tested', 'configuration_entries', null, null, ['to' => $to] + $result);
+
+        return response()->json(['data' => $result + ['status' => $result['transport'] === 'log' ? 'written_to_log' : 'sent']]);
     }
 
     // ---- Lookups ---------------------------------------------------------------------------

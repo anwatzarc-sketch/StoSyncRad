@@ -33,6 +33,8 @@ final class PartnerSchema extends TableSchema
             'website' => Property::url()->nullable()->label('Website'),
             'default_currency' => Property::string(3)->nullable()->pattern('/^[A-Z]{3}$/')->label('Default currency'),
             'payment_terms_lookup_value_id' => Property::uuid()->nullable()->references(LookupValue::class)->label('Payment terms'),
+            'credit_limit' => Property::money()->nullable()->nonNegative()->writableBy('billing.credit.manage')
+                ->label('Credit limit', 'Most this customer may owe: unpaid invoices plus open orders. Blank = no limit.'),
             'incoterm_lookup_value_id' => Property::uuid()->nullable()->references(LookupValue::class)->label('Incoterm'),
             'lead_time_days' => Property::integer()->nullable()->min(0)->max(3650)->label('Lead time (days)'),
             'rating' => Property::integer()->nullable()->min(1)->max(5)->label('Rating'),

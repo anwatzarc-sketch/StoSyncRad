@@ -17,6 +17,7 @@ use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\Inventory\Enums\MovementType;
 use App\Domains\Inventory\Enums\ReservationReferenceType;
 use App\Domains\Inventory\Enums\StockCondition;
+use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Inventory\Posting\InventoryPoster;
 use App\Domains\Inventory\Posting\MovementLine;
 use App\Domains\Inventory\Posting\MovementRequest;
@@ -133,6 +134,7 @@ final class ShipmentWorkflow
             function (PostingContext $ctx) use ($id, $actor, $data) {
                 $shipment = $this->lockDocument(Shipment::class, $id);
                 $this->authorizeWarehouse($actor, 'fulfillment.shipment.handover', $shipment->warehouse_id);
+                $this->assertOrderChannel($shipment);
                 $this->expectVersion($shipment, $data['version'] ?? null);
                 $shipment->forceFill(array_filter(['carrier_partner_id' => $data['carrier_partner_id'] ?? null, 'tracking_number' => $data['tracking_number'] ?? null]));
                 $this->transition($shipment, S::HANDED_OVER, ['handed_over_by' => $actor->id, 'handed_over_at' => now()]);
@@ -160,6 +162,7 @@ final class ShipmentWorkflow
             function (PostingContext $ctx) use ($id, $actor, $data, $source) {
                 $shipment = $this->lockDocument(Shipment::class, $id);
                 $this->authorizeWarehouse($actor, 'fulfillment.shipment.update_status', $shipment->warehouse_id);
+                $this->assertOrderChannel($shipment);
                 $status = S::from($data['status']);
                 if ($status === S::PACKED || $status === S::HANDED_OVER) {
                     throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'Packing and handover are separate actions.', ['field' => 'status']);
@@ -190,6 +193,7 @@ final class ShipmentWorkflow
     {
         return DB::transaction(function () use ($id, $actor, $reason, $version) {
             $shipment = $this->lockDocument(Shipment::class, $id);
+            $this->assertOrderChannel($shipment);
             $this->authorizeWarehouse($actor, 'fulfillment.shipment.pack', $shipment->warehouse_id);
             $this->expectVersion($shipment, $version);
             $this->transition($shipment, S::CANCELLED);
@@ -200,7 +204,7 @@ final class ShipmentWorkflow
         });
     }
 
-    private function postSale(Shipment $shipment, PostingContext $ctx, ?UserAccount $actor): \App\Domains\Inventory\Models\StockMovement
+    private function postSale(Shipment $shipment, PostingContext $ctx, ?UserAccount $actor): StockMovement
     {
         $order = $this->lockDocument(SalesOrder::class, $shipment->sales_order_id);
         $customer = $this->locations->virtual(InventoryLocationType::CUSTOMER)->id;
@@ -247,9 +251,18 @@ final class ShipmentWorkflow
         ]);
     }
 
-    private function outcome(Shipment $shipment, ?\App\Domains\Inventory\Models\StockMovement $movement): PostingOutcome
+    private function outcome(Shipment $shipment, ?StockMovement $movement): PostingOutcome
     {
         return new PostingOutcome(['shipment_id' => $shipment->id, 'document_number' => $shipment->document_number, 'status' => $shipment->status->value,
             'stock_movement_id' => $movement?->id ?? $shipment->stock_movement_id, 'movement_number' => $movement?->movement_number], 200, DocumentType::SHIPMENT->value, $shipment->id);
+    }
+
+    /** Shipment actions follow the feature flag of the order's channel (e-commerce, retail, customer portal). */
+    private function assertOrderChannel(Shipment $shipment): void
+    {
+        $channel = SalesOrder::query()->whereKey($shipment->sales_order_id)->value('channel');
+        if ($channel !== null) {
+            $this->orders->assertChannelEnabled($channel instanceof SalesChannel ? $channel : SalesChannel::from((string) $channel));
+        }
     }
 }

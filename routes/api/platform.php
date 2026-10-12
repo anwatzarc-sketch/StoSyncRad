@@ -1,23 +1,16 @@
 <?php
 
-use App\Support\Documents\Schemas\DecisionSchema;
 use App\Domains\IdentityAccess\Schemas as IdS;
+use App\Domains\Messaging\Schemas as MsgS;
 use App\Domains\Platform\Schemas as PlatS;
 use App\Domains\ReportingEngine\Schemas as RepS;
-use App\Domains\Messaging\Schemas as MsgS;
-use App\Domains\DataExchange\Schemas as DxS;
-use App\Domains\Catalog\Schemas as CatS;
-use App\Domains\Inventory\Schemas as InvS;
-use App\Domains\Partners\Schemas as PartS;
-use App\Domains\Receiving\Schemas as RecS;
-use App\Domains\Transfers\Schemas as TrS;
-use App\Domains\Fulfillment\Schemas as FulS;
 use App\Http\Controllers\Api\AccountAdminController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\ExchangeController;
 use App\Http\Controllers\Api\IntegrationController;
 use App\Http\Controllers\Api\ReportingController;
 use App\Http\Controllers\Api\StockQueryController;
+use App\Support\Documents\Schemas\DecisionSchema;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -71,6 +64,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::prefix('admin')->name('admin.')->group(function (): void {
         Route::get('config', [AdminController::class, 'config'])->name('config')->permission('platform.config.read');
         Route::put('config/{key}', [AdminController::class, 'setConfig'])->name('config.update')->schema(PlatS\ConfigValueSchema::class)->where('key', '[a-z0-9_.]+')->permission('platform.config.read');
+        Route::post('mail/test', [AdminController::class, 'testMail'])->middleware('throttle:10,1')->name('mail.test')->schema(PlatS\MailTestSchema::class)
+            ->permission('platform.config.messaging_manage');
         Route::get('lookups', [AdminController::class, 'lookups'])->name('lookups')->permission('platform.lookup.read');
         Route::put('lookups/{lookupCode}/values', [AdminController::class, 'saveLookupValue'])->name('lookups.values')->schema(PlatS\LookupValueSaveSchema::class)->permission('platform.lookup.manage');
         Route::get('templates', [AdminController::class, 'templates'])->name('templates')->permission('platform.template.read');

@@ -16,7 +16,9 @@ use App\Domains\IdentityAccess\Services\PasswordPolicy;
 use App\Domains\IdentityAccess\Services\SessionManager;
 use App\Domains\IdentityAccess\Services\StepUpVerifier;
 use App\Domains\IdentityAccess\Services\TotpService;
+use App\Domains\Messaging\Services\TransactionalMailer;
 use App\Domains\Platform\Config\PlatformConfig;
+use App\Domains\Platform\Services\BrandResolver;
 use App\Domains\Platform\Templates\DocumentPrintService;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
@@ -25,7 +27,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\IpUtils;
 
@@ -52,6 +53,24 @@ final class AuthController extends ApiController
 
     public function login(Request $request): JsonResponse
     {
+        return $this->attempt($request, AccountType::HUMAN);
+    }
+
+    /**
+     * Customer Portal sign-in (CP-1.1 section 4): same password, lockout and two-step rules as staff, but
+     * only customer accounts — a staff account cannot sign in here and a customer cannot sign in to staff.
+     */
+    public function portalLogin(Request $request): JsonResponse
+    {
+        if (! $this->config->feature('feature.customer_portal')) {
+            throw DomainException::featureDisabled('feature.customer_portal');
+        }
+
+        return $this->attempt($request, AccountType::CUSTOMER);
+    }
+
+    private function attempt(Request $request, AccountType $type): JsonResponse
+    {
         $identifier = mb_strtolower(trim((string) $request->input('identifier', $request->input('username', ''))));
         $password = (string) $request->input('password', '');
         if ($identifier === '' || $password === '') {
@@ -59,7 +78,7 @@ final class AuthController extends ApiController
         }
         $this->assertIpAllowed($request);
         /** @var UserAccount|null $account */
-        $account = UserAccount::query()->where('account_type', AccountType::HUMAN->value)
+        $account = UserAccount::query()->where('account_type', $type->value)
             ->where(fn ($q) => $q->whereRaw('lower(username) = ?', [$identifier])->orWhereRaw('lower(email) = ?', [$identifier]))->first();
         $invalid = fn () => DomainException::of(ErrorCode::UNAUTHENTICATED, 'The username or password is incorrect.');
         if ($account === null) {
@@ -187,17 +206,17 @@ final class AuthController extends ApiController
     {
         $identifier = mb_strtolower(trim((string) $request->input('identifier', '')));
         if ($this->config->bool('identity.self_service_password_reset') && $identifier !== '') {
-            $account = UserAccount::query()->where('account_type', AccountType::HUMAN->value)->where('account_status', AccountStatus::ACTIVE->value)
+            $account = UserAccount::query()->whereIn('account_type', [AccountType::HUMAN->value, AccountType::CUSTOMER->value])->where('account_status', AccountStatus::ACTIVE->value)
                 ->where(fn ($q) => $q->whereRaw('lower(username) = ?', [$identifier])->orWhereRaw('lower(email) = ?', [$identifier]))->first();
             if ($account?->email) {
                 $token = Str::random(64);
                 DB::table('password_reset_tokens')->updateOrInsert(['email' => mb_strtolower($account->email)], ['token' => Hash::make($token), 'created_at' => now()]);
-                $url = url('/password/reset?token='.$token.'&email='.urlencode($account->email));
+                $url = url(($account->isCustomer() ? '/portal/password/reset' : '/password/reset').'?token='.$token.'&email='.urlencode($account->email));
                 $body = app(DocumentPrintService::class)->renderer()->render((string) DB::table('templates')->where('code', 'email.auth.password_reset')
                     ->where('is_active', true)->value('body'), ['recipient_name' => $account->displayName(), 'reset_url' => $url, 'expires_minutes' => 60,
-                        'brand' => app(\App\Domains\Platform\Services\BrandResolver::class)->publicProfile()]);
+                        'brand' => app(BrandResolver::class)->publicProfile()]);
                 try {
-                    Mail::html($body, fn ($m) => $m->to($account->email)->subject('Password reset'));
+                    app(TransactionalMailer::class)->html($account->email, 'Password reset', $body);
                 } catch (\Throwable) {
                     // delivery problems are not disclosed to the requester
                 }
@@ -215,7 +234,7 @@ final class AuthController extends ApiController
         if ($row === null || now()->diffInMinutes($row->created_at, true) > 60 || ! Hash::check((string) $request->input('token', ''), $row->token)) {
             throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'This reset link is invalid or has expired.', ['field' => 'token']);
         }
-        $account = UserAccount::query()->whereRaw('lower(email) = ?', [$email])->where('account_type', AccountType::HUMAN->value)->firstOrFail();
+        $account = UserAccount::query()->whereRaw('lower(email) = ?', [$email])->whereIn('account_type', [AccountType::HUMAN->value, AccountType::CUSTOMER->value])->firstOrFail();
         $new = (string) $request->input('password', '');
         $this->passwords->assertAcceptable($new, $account);
         $account->forceFill(['password_hash' => $this->passwords->hash($new), 'password_changed_at' => now(), 'must_change_password' => false,

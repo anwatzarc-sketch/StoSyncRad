@@ -8,6 +8,7 @@ use App\Domains\Messaging\Services\WebhookService;
 use App\Domains\Platform\Services\PlatformHealth;
 use App\Domains\Platform\Services\SetupState;
 use App\Domains\ReportingEngine\Services\ReportRunner;
+use App\Domains\Sales\Services\QuotationWorkflow;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
@@ -42,6 +43,10 @@ Artisan::command('reports:purge', function (ReportRunner $runner) {
     $this->line('Purged '.$runner->purgeExpired().' expired export files.');
 })->purpose('Delete expired report exports and import error files');
 
+Artisan::command('sales:expire-quotations', function (QuotationWorkflow $quotations) {
+    $this->line('Expired '.$quotations->expireDue().' quotation(s).');
+})->purpose('Mark sent quotations past their validity date as expired and notify the customer');
+
 $whenLive = fn (): bool => app(SetupState::class)->isComplete() && ! app()->isDownForMaintenance();
 
 Schedule::call(fn () => app(PlatformHealth::class)->beat())->everyMinute()->name('scheduler-heartbeat');
@@ -51,5 +56,6 @@ Schedule::command('webhooks:deliver')->everyMinute()->when($whenLive)->withoutOv
 Schedule::command('reservations:expire')->everyFiveMinutes()->when($whenLive)->withoutOverlapping(10)->onOneServer();
 Schedule::command('reports:purge')->hourly()->when($whenLive)->withoutOverlapping()->onOneServer();
 Schedule::command('inventory:expiry-monitor')->dailyAt('00:30')->when($whenLive)->withoutOverlapping(60)->onOneServer();
+Schedule::command('sales:expire-quotations')->dailyAt('00:45')->when($whenLive)->withoutOverlapping(30)->onOneServer();
 Schedule::command('inventory:reconcile')->dailyAt('02:00')->when($whenLive)->withoutOverlapping(120)->onOneServer();
 Schedule::command('queue:prune-failed --hours=720')->daily()->when($whenLive);

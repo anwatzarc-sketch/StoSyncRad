@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { get, post } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import { formatDateTime } from '@/lib/format';
@@ -92,15 +93,15 @@ async function confirmMfa() {
             <form class="space-y-4" @submit.prevent="changePassword">
                 <div>
                     <label for="current-password" class="label">Current password</label>
-                    <input id="current-password" v-model="current" type="password" class="input" autocomplete="current-password" required>
+                    <PasswordInput id="current-password" v-model="current" autocomplete="current-password" required />
                 </div>
                 <div>
                     <label for="next-password" class="label">New password</label>
-                    <input id="next-password" v-model="next" type="password" class="input" autocomplete="new-password" required>
+                    <PasswordInput id="next-password" v-model="next" generate autocomplete="new-password" required @generated="repeat = $event" />
                 </div>
                 <div>
                     <label for="repeat-password" class="label">Repeat the new password</label>
-                    <input id="repeat-password" v-model="repeat" type="password" class="input" autocomplete="new-password" required>
+                    <PasswordInput id="repeat-password" v-model="repeat" autocomplete="new-password" required />
                 </div>
                 <UiButton variant="primary" type="submit" :loading="passwordBusy">Change password</UiButton>
             </form>

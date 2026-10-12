@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import FormField from '@/components/ui/FormField.vue';
 import EnumSelect from '@/components/ui/EnumSelect.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
+import PasswordInput from '@/components/ui/PasswordInput.vue';
 import BarcodeInput from '@/components/BarcodeInput.vue';
 import LinesEditor from './LinesEditor.vue';
 import { isRequired, propertyLabel, type SchemaProperty } from '@/lib/meta';
@@ -100,6 +101,13 @@ const datetimeLocal = computed(() => {
 
 const inputType = computed(() => ({ email: 'email', phone: 'tel', url: 'url', date: 'date', time: 'time' } as Record<string, string>)[p.value.type]
     ?? (p.value.sensitive ? 'password' : 'text'));
+const masked = computed(() => inputType.value === 'password' && p.value.type !== 'integer');
+/** New passwords (e.g. a user account's) get the generator; current passwords and other secrets only the toggle. */
+const offersGenerator = computed(() => /^(new_)?password$/.test(props.name));
+
+function onMaskedInput(value: string) {
+    emit('update:modelValue', value === '' && p.value.nullable !== false ? null : value);
+}
 </script>
 
 <template>
@@ -202,6 +210,19 @@ const inputType = computed(() => ({ email: 'email', phone: 'tel', url: 'url', da
                 :disabled="disabled"
                 @change="onInput"
             >
+            <PasswordInput
+                v-else-if="masked"
+                :id="id"
+                :model-value="(modelValue as string | null)"
+                :generate="offersGenerator"
+                :subject="label.toLowerCase()"
+                :class="{ 'input-invalid': !!error }"
+                :maxlength="p.max_length"
+                :disabled="disabled"
+                autocomplete="new-password"
+                :aria-invalid="!!error || undefined"
+                @update:model-value="onMaskedInput"
+            />
             <input
                 v-else
                 :id="id"

@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import ModalDialog from './ui/ModalDialog.vue';
 import UiButton from './ui/UiButton.vue';
+import PasswordInput from './ui/PasswordInput.vue';
 import { ApiError, post } from '@/lib/api';
 import { finishStepUp, stepUpState } from '@/lib/stepUp';
 
@@ -43,7 +44,7 @@ async function verify() {
             </div>
             <div>
                 <label for="step-up-password" class="label">Password</label>
-                <input id="step-up-password" v-model="password" class="input" type="password" autocomplete="current-password">
+                <PasswordInput id="step-up-password" v-model="password" autocomplete="current-password" />
             </div>
             <p v-if="error" class="error-text" role="alert">{{ error }}</p>
         </form>

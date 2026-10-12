@@ -8,6 +8,8 @@ use App\Domains\IdentityAccess\Enums\AccountStatus;
 use App\Domains\IdentityAccess\Enums\AccountType;
 use App\Domains\IdentityAccess\Enums\MfaStatus;
 use App\Domains\IdentityAccess\Schemas\UserAccountSchema;
+use App\Domains\Partners\Models\Partner;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Authenticatable;
 use Illuminate\Auth\Passwords\CanResetPassword;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
@@ -33,13 +35,13 @@ use Laravel\Sanctum\HasApiTokens;
  * @property AccountStatus $account_status
  * @property bool $is_super_admin
  * @property MfaStatus $mfa_status
- * @property \Carbon\CarbonImmutable|null $password_changed_at
+ * @property CarbonImmutable|null $password_changed_at
  * @property bool $must_change_password
- * @property \Carbon\CarbonImmutable|null $last_login_at
+ * @property CarbonImmutable|null $last_login_at
  * @property string|null $last_login_ip
  * @property int $failed_login_count
- * @property \Carbon\CarbonImmutable|null $locked_until
- * @property \Carbon\CarbonImmutable|null $deactivated_at
+ * @property CarbonImmutable|null $locked_until
+ * @property CarbonImmutable|null $deactivated_at
  * @property string|null $deactivated_by
  * @property-read Person|null $person
  */
@@ -62,7 +64,7 @@ final class UserAccount extends Model implements AuthenticatableContract, CanRes
     protected $fillable = [
         'person_id', 'username', 'email', 'password_hash', 'account_type', 'account_status', 'is_super_admin', 'mfa_status',
         'password_changed_at', 'must_change_password', 'last_login_at', 'last_login_ip', 'failed_login_count', 'locked_until',
-        'deactivated_at', 'deactivated_by', 'created_by', 'updated_by',
+        'deactivated_at', 'deactivated_by', 'created_by', 'updated_by', 'customer_partner_id',
     ];
 
     public function newUniqueId(): string
@@ -130,6 +132,12 @@ final class UserAccount extends Model implements AuthenticatableContract, CanRes
         return $this->hasMany(TrustedDevice::class);
     }
 
+    /** The customer a Customer Portal account belongs to. */
+    public function customerPartner(): BelongsTo
+    {
+        return $this->belongsTo(Partner::class, 'customer_partner_id');
+    }
+
     // ---- State helpers -------------------------------------------------------------------
 
     public function isActive(): bool
@@ -141,6 +149,12 @@ final class UserAccount extends Model implements AuthenticatableContract, CanRes
     public function isHuman(): bool
     {
         return $this->account_type === AccountType::HUMAN;
+    }
+
+    /** Customer Portal account (never a member of staff). */
+    public function isCustomer(): bool
+    {
+        return $this->account_type === AccountType::CUSTOMER;
     }
 
     public function displayName(): string

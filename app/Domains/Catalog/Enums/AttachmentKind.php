@@ -17,4 +17,6 @@ enum AttachmentKind: string implements SystemEnum
     case CERTIFICATE = 'certificate';
     case IMAGE = 'image';
     case OTHER = 'other';
+    case PAYMENT_EVIDENCE = 'payment_evidence';
+    case DELIVERY_PHOTO = 'delivery_photo';
 }

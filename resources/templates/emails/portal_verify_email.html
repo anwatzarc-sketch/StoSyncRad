@@ -1,0 +1,6 @@
+<p>Hello {{ recipient_name }},</p>
+<p>Thank you for registering {{ company_name }} for the {{ brand.app_name }} customer portal{{#if brand.company_name}} of {{ brand.company_name }}{{/if}}.</p>
+<p>Confirm your email address to continue. The link is valid for {{ expires_hours }} hours.</p>
+<p><a href="{{ verify_url }}">Confirm my email address</a></p>
+<p>Next you will set up two-step verification. {{#if needs_approval}}Our team then reviews your registration before you can sign in.{{/if}}</p>
+<p>If you did not register, ignore this message.</p>

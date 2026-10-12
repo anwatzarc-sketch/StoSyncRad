@@ -1,0 +1,22 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong></div>{{#if document.document_number}}{{ document.document_number | barcode:30 }}{{/if}}</td>
+  </tr></table>
+</div>
+
+<table class="grid">
+  <tr><td><strong>Bill to</strong><br>{{ document.customer_name }}{{#if document.customer_tax_id}}<br>Tax ID {{ document.customer_tax_id }}{{/if}}{{#if document.order_number}}<br>Order {{ document.order_number }}{{/if}}{{#if document.shipment_number}}<br>Shipment {{ document.shipment_number }}{{/if}}{{#if document.reference}}<br>Your ref: {{ document.reference }}{{/if}}</td>
+      <td class="n">Issued: {{ document.issue_date | date }}<br><strong>Due: {{ document.due_date | date }}</strong><br>Currency: {{ document.currency }}</td></tr>
+</table>
+<table>
+  <thead><tr><th>#</th><th>Description</th><th class="n">Qty</th><th class="n">Unit price</th><th class="n">Tax %</th><th class="n">Total</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.line_no }}</td><td>{{ l.description }}</td><td class="n">{{ l.quantity | qty }}</td><td class="n">{{ l.unit_price | money }}</td><td class="n">{{ l.tax_rate | number:2 }}</td><td class="n">{{ l.line_total | money }}</td></tr>{{/each}}</tbody>
+</table>
+<table class="grid"><tr><td></td><td class="n">Subtotal: {{ document.subtotal | money }}<br>Tax: {{ document.tax_amount | money }}<br><strong>Total: {{ document.total | money }} {{ document.currency }}</strong><br>Paid: {{ document.amount_paid | money }}<br><strong>Balance due: {{ document.balance_due | money }} {{ document.currency }}</strong></td></tr></table>
+{{#if document.notes}}<h2>Notes</h2><p>{{ document.notes | nl2br }}</p>{{/if}}
+<p class="muted">Paid already? Confirm your payment with the bank slip in the customer portal. Printed {{ printed_at | datetime }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

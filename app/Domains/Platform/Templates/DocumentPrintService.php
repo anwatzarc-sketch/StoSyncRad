@@ -34,6 +34,8 @@ final class DocumentPrintService
         'stocktake' => ['document.stocktake.count_sheet', 'stocktaking.stocktake.read'],
         'stock_adjustment' => ['document.stock_adjustment.print', 'stocktaking.adjustment.read'],
         'item_label' => ['label.item.barcode', 'catalog.label.print'],
+        'quotation' => ['document.quotation.print', 'sales.quotation.read'],
+        'invoice' => ['document.invoice.print', 'billing.invoice.read'],
     ];
 
     public function __construct(
@@ -45,12 +47,16 @@ final class DocumentPrintService
     ) {}
 
     /** @return array{content: string, mime: string, filename: string} */
-    public function print(string $type, string $id, UserAccount $actor, string $format = 'pdf', array $options = []): array
+    /**
+     * `$preAuthorized` is used only by the Customer Portal, which has already checked that the document
+     * belongs to the signed-in customer; staff printing always checks the permission here.
+     */
+    public function print(string $type, string $id, UserAccount $actor, string $format = 'pdf', array $options = [], bool $preAuthorized = false): array
     {
         [$code, $permission] = self::TYPES[$type] ?? throw DomainException::of(ErrorCode::NOT_FOUND, "Unknown printable document `$type`.");
         [$data, $warehouses] = $this->data($type, $id, $actor, $options);
-        $allowed = array_filter($warehouses) === [] ? $this->access->hasPermissionAnywhere($actor, $permission)
-            : collect($warehouses)->filter()->contains(fn ($w) => $this->access->can($actor, $permission, $w));
+        $allowed = $preAuthorized || (array_filter($warehouses) === [] ? $this->access->hasPermissionAnywhere($actor, $permission)
+            : collect($warehouses)->filter()->contains(fn ($w) => $this->access->can($actor, $permission, $w)));
         if (! $allowed) {
             throw DomainException::permissionDenied($permission);
         }
@@ -172,10 +178,23 @@ final class DocumentPrintService
                 $doc['adjustment_type'] = $this->enumLabel('adjustment_type', (string) $doc['adjustment_type']);
 
                 return [['title' => 'Stock adjustment', 'document' => $doc, 'lines' => $lines], [$doc['warehouse_id']]];
+            case 'quotation':
+                $doc = $one('SELECT q.*, c.name AS customer_name, c.tax_id AS customer_tax_id FROM quotations q JOIN partners c ON c.id = q.customer_partner_id WHERE q.id = ?', [$id]);
+                $lines = $many('SELECT l.line_no, i.sku, i.name, l.quantity, u.symbol AS uom, l.unit_price, l.line_total FROM quotation_lines l
+                    JOIN items i ON i.id = l.item_id JOIN units_of_measure u ON u.id = l.uom_id WHERE l.quotation_id = ? ORDER BY l.line_no', [$id]);
+
+                return [['title' => 'Quotation', 'document' => $doc, 'lines' => $lines], []];
+            case 'invoice':
+                $doc = $one('SELECT v.*, c.name AS customer_name, c.tax_id AS customer_tax_id, o.document_number AS order_number, s.document_number AS shipment_number FROM invoices v
+                    JOIN partners c ON c.id = v.customer_partner_id LEFT JOIN sales_orders o ON o.id = v.sales_order_id
+                    LEFT JOIN shipments s ON s.id = v.shipment_id WHERE v.id = ?', [$id]);
+                $lines = $many('SELECT line_no, description, quantity, unit_price, line_total, tax_rate, tax_amount FROM invoice_lines WHERE invoice_id = ? ORDER BY line_no', [$id]);
+
+                return [['title' => $doc['status'] === 'draft' ? 'Draft invoice' : 'Invoice', 'document' => $doc, 'lines' => $lines], []];
             case 'item_label':
-                $item = $one("SELECT i.id, i.sku, i.name, i.list_price, i.list_price_currency, u.symbol AS uom,
+                $item = $one('SELECT i.id, i.sku, i.name, i.list_price, i.list_price_currency, u.symbol AS uom,
                     (SELECT b.barcode FROM item_barcodes b WHERE b.item_id = i.id ORDER BY b.is_primary DESC, b.created_at LIMIT 1) AS barcode
-                    FROM items i JOIN units_of_measure u ON u.id = i.base_uom_id WHERE i.id = ?", [$id]);
+                    FROM items i JOIN units_of_measure u ON u.id = i.base_uom_id WHERE i.id = ?', [$id]);
                 $copies = max(1, min(500, (int) ($options['copies'] ?? 1)));
 
                 return [['title' => 'Labels', 'labels' => array_fill(0, $copies, $item + ['barcode' => $item['barcode'] ?: $item['sku']])], []];
@@ -197,7 +216,7 @@ final class DocumentPrintService
     private function shell(string $body, string $title, bool $label): string
     {
         $brand = $this->brand->publicProfile();
-        $primary = e((string) data_get($brand, 'theme.colors.primary', '#1f4b99'));
+        $primary = e((string) data_get($brand, 'theme.colors.brand', '#04326d'));
         $page = $label ? '@page { margin: 4mm; }' : '@page { margin: 18mm 14mm 16mm 14mm; }';
 
         return '<!doctype html><html><head><meta charset="utf-8"><title>'.e($title).'</title><style>'.$page.'

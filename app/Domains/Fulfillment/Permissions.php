@@ -23,10 +23,10 @@ final class Permissions implements ProvidesPermissions
 
     public static function definitions(): array
     {
-        $sales = 'feature.retail_sales';
         $ecom = 'feature.ecommerce_fulfillment';
-        // Shared by retail and e-commerce orders: the channel's feature is enforced per order by
-        // SalesOrderWorkflow::assertChannelEnabled, so these are not tied to a single flag.
+        // Shared by the retail, e-commerce and customer portal channels: the channel's feature is enforced
+        // per order by SalesOrderWorkflow::assertChannelEnabled (deliveries and every shipment action
+        // included), so these are not tied to a single flag.
         $anySales = null;
 
         return [
@@ -50,12 +50,12 @@ final class Permissions implements ProvidesPermissions
             P::warehouse('fulfillment.sales_order.update', 'Update sales orders', '', S::NORMAL, ['fulfillment.sales_order.read'], $anySales),
             P::warehouse('fulfillment.sales_order.confirm', 'Confirm sales orders', '', S::NORMAL, ['fulfillment.sales_order.read'], $anySales),
             P::warehouse('fulfillment.sales_order.cancel', 'Cancel sales orders', '', S::NORMAL, ['fulfillment.sales_order.read'], $anySales),
-            P::warehouse('fulfillment.sales_order.deliver', 'Post sales deliveries', '', S::ELEVATED, ['fulfillment.sales_order.read'], $sales),
+            P::warehouse('fulfillment.sales_order.deliver', 'Post sales deliveries', '', S::ELEVATED, ['fulfillment.sales_order.read'], $anySales),
             P::warehouse('fulfillment.sales_order.intake_api', 'Submit e-commerce orders via API', '', S::NORMAL, [], $ecom),
-            P::warehouse('fulfillment.shipment.read', 'View shipments', '', S::NORMAL, [], $ecom),
-            P::warehouse('fulfillment.shipment.pack', 'Pack shipments', '', S::NORMAL, ['fulfillment.shipment.read'], $ecom),
-            P::warehouse('fulfillment.shipment.handover', 'Hand shipments to carriers', '', S::ELEVATED, ['fulfillment.shipment.read'], $ecom),
-            P::warehouse('fulfillment.shipment.update_status', 'Update shipment status', '', S::NORMAL, ['fulfillment.shipment.read'], $ecom),
+            P::warehouse('fulfillment.shipment.read', 'View shipments', '', S::NORMAL, [], $anySales),
+            P::warehouse('fulfillment.shipment.pack', 'Pack shipments', '', S::NORMAL, ['fulfillment.shipment.read'], $anySales),
+            P::warehouse('fulfillment.shipment.handover', 'Hand shipments to carriers', '', S::ELEVATED, ['fulfillment.shipment.read'], $anySales),
+            P::warehouse('fulfillment.shipment.update_status', 'Update shipment status', '', S::NORMAL, ['fulfillment.shipment.read'], $anySales),
             P::warehouse('fulfillment.customer_return.read', 'View customer returns', '', S::NORMAL, [], 'feature.customer_returns'),
             P::warehouse('fulfillment.customer_return.authorize', 'Authorize customer returns (RMA)', '', S::NORMAL, ['fulfillment.customer_return.read'], 'feature.customer_returns'),
             P::warehouse('fulfillment.customer_return.receive', 'Receive customer returns', '', S::NORMAL, ['fulfillment.customer_return.read'], 'feature.customer_returns'),

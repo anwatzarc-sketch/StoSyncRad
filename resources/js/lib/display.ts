@@ -79,4 +79,6 @@ export const PRINT_TYPES: Record<string, string> = {
     shipments: 'delivery_note',
     stocktakes: 'stocktake',
     'stock-adjustments': 'stock_adjustment',
+    quotations: 'quotation',
+    invoices: 'invoice',
 };

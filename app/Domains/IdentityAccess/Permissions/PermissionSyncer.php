@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Domains\IdentityAccess\Permissions;
 
 use App\Domains\IdentityAccess\Enums\PermissionGrantSource;
-use App\Domains\IdentityAccess\Models\Role;
 use App\Domains\IdentityAccess\Enums\RoleStatus;
+use App\Domains\IdentityAccess\Models\Role;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -83,6 +83,7 @@ final class PermissionSyncer
 
             $this->rematerializeImplied($ids);
             $this->ensureSuperAdminRole();
+            $this->ensureCustomerRoles($ids);
 
             return ['declared' => count($declared), 'inserted' => $inserted, 'deprecated' => $deprecated, 'bindings' => count($bindings)];
         });
@@ -131,6 +132,44 @@ final class PermissionSyncer
             if ($rows !== []) {
                 DB::table('role_permissions')->insert($rows);
             }
+        }
+    }
+
+    /**
+     * The two system roles of Customer Portal accounts: members hold the customer.* permissions except
+     * managing colleagues; customer administrators hold all of them. Both are always limited to the
+     * account's own customer by the portal services, and never carry a staff permission.
+     *
+     * @param  array<string, string>  $ids  permission code => id
+     */
+    private function ensureCustomerRoles(array $ids): void
+    {
+        $customer = array_values(array_filter(array_keys($ids), fn (string $c) => str_starts_with($c, 'customer.') && $this->registry->has($c)));
+        $this->ensureCustomerRole(Role::CUSTOMER_MEMBER_CODE, 'Customer portal member',
+            'System role of customer portal accounts. Grants customer.* permissions (not managing colleagues), limited to the own customer of the account.',
+            array_values(array_diff($customer, ['customer.member.manage'])), $ids);
+        $this->ensureCustomerRole(Role::CUSTOMER_ADMIN_CODE, 'Customer portal administrator',
+            'System role of a customer\'s portal administrators. Grants every customer.* permission, including inviting and managing colleagues of the own customer.',
+            $customer, $ids);
+    }
+
+    /**
+     * @param  array<int, string>  $codes
+     * @param  array<string, string>  $ids
+     */
+    private function ensureCustomerRole(string $code, string $name, string $description, array $codes, array $ids): void
+    {
+        $role = Role::query()->where('code', $code)->first();
+        if ($role === null) {
+            $role = new Role(['code' => $code, 'name' => $name, 'description' => $description]);
+            $role->forceFill(['is_system' => true, 'is_template_origin' => false, 'status' => RoleStatus::ACTIVE])->save();
+        }
+        DB::table('role_permissions')->where('role_id', $role->id)->whereNotIn('permission_code', $codes)->delete();
+        $have = DB::table('role_permissions')->where('role_id', $role->id)->pluck('permission_code')->all();
+        $rows = array_map(fn (string $code) => ['id' => (string) Str::uuid7(), 'role_id' => $role->id, 'permission_id' => $ids[$code], 'permission_code' => $code,
+            'granted_via' => PermissionGrantSource::DIRECT->value, 'created_at' => now(), 'updated_at' => now()], array_values(array_diff($codes, $have)));
+        if ($rows !== []) {
+            DB::table('role_permissions')->insert($rows);
         }
     }
 

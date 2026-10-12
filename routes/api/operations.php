@@ -1,32 +1,33 @@
 <?php
 
-use App\Support\Documents\Schemas\DecisionSchema;
-use App\Domains\IdentityAccess\Schemas as IdS;
-use App\Domains\Platform\Schemas as PlatS;
-use App\Domains\ReportingEngine\Schemas as RepS;
-use App\Domains\Messaging\Schemas as MsgS;
-use App\Domains\DataExchange\Schemas as DxS;
 use App\Domains\Catalog\Schemas as CatS;
-use App\Domains\Inventory\Schemas as InvS;
-use App\Domains\Partners\Schemas as PartS;
-use App\Domains\Receiving\Schemas as RecS;
-use App\Domains\Transfers\Schemas as TrS;
-use App\Domains\Fulfillment\Schemas as FulS;
 use App\Domains\Catalog\Schemas\ItemSchema;
 use App\Domains\DataExchange\Enums\ImportType;
+use App\Domains\DataExchange\Schemas as DxS;
+use App\Domains\Fulfillment\Schemas as FulS;
 use App\Domains\Fulfillment\Schemas\StockIssueSchema;
+use App\Domains\IdentityAccess\Schemas as IdS;
+use App\Domains\Inventory\Schemas as InvS;
+use App\Domains\Messaging\Schemas as MsgS;
 use App\Domains\Organization\Schemas\CompanyProfileSchema;
+use App\Domains\Partners\Schemas as PartS;
+use App\Domains\Platform\Schemas as PlatS;
 use App\Domains\Procurement\Schemas\PurchaseOrderSchema;
+use App\Domains\Receiving\Schemas as RecS;
 use App\Domains\ReportingEngine\Enums\ReportOutputFormat;
+use App\Domains\ReportingEngine\Schemas as RepS;
+use App\Domains\Transfers\Schemas as TrS;
 use App\Http\Controllers\Api\AccountAdminController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\ExchangeController;
+use App\Http\Controllers\Api\ItemImageController;
 use App\Http\Controllers\Api\LifecycleController;
 use App\Http\Controllers\Api\OperationsController;
 use App\Http\Controllers\Api\PlatformAdminController;
 use App\Http\Controllers\Api\ReportingController;
 use App\Http\Controllers\Api\ResourceController;
 use App\Http\Controllers\Api\TaskSheetController;
+use App\Support\Documents\Schemas\DecisionSchema;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -47,6 +48,14 @@ Route::middleware('auth:sanctum')->group(function (): void {
     }
     Route::post('items/{id}/convert-tracking', [LifecycleController::class, 'convertTracking'])->name('items.convert_tracking')->whereUuid('id')
         ->permission('catalog.item.convert_tracking')->schema(CatS\TrackingConversionSchema::class)->middleware('step_up');
+    Route::get('items/{id}/images', [ItemImageController::class, 'index'])->name('items.images')->whereUuid('id')->permission('catalog.item.read');
+    Route::post('items/{id}/images', [ItemImageController::class, 'store'])->name('items.images.store')->whereUuid('id')->middleware('throttle:60,1')
+        ->permission('catalog.item.update')->schema(CatS\ItemImageUploadSchema::class)->ownScreen();
+    Route::get('items/{id}/images/{imageId}', [ItemImageController::class, 'show'])->name('items.images.show')->whereUuid(['id', 'imageId'])->permission('catalog.item.read');
+    Route::post('items/{id}/images/{imageId}/primary', [ItemImageController::class, 'primary'])->name('items.images.primary')->whereUuid(['id', 'imageId'])
+        ->permission('catalog.item.update')->noBody();
+    Route::delete('items/{id}/images/{imageId}', [ItemImageController::class, 'destroy'])->name('items.images.destroy')->whereUuid(['id', 'imageId'])
+        ->permission('catalog.item.update')->noBody();
     Route::get('items/{id}/label', [ExchangeController::class, 'printItemLabel'])->name('items.label')->whereUuid('id')->permission('catalog.label.print');
     Route::post('item-categories/{id}/archive', [LifecycleController::class, 'categoryArchive'])->name('item_categories.archive')->whereUuid('id')->permission('catalog.category.archive')->schema(DecisionSchema::class);
     Route::post('item-categories/{id}/move', [LifecycleController::class, 'categoryMove'])->name('item_categories.move')->whereUuid('id')->permission('catalog.category.move')->schema(CatS\CategoryMoveSchema::class);

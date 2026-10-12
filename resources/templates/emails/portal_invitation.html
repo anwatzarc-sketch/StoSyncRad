@@ -1,0 +1,5 @@
+<p>Hello {{ recipient_name }},</p>
+<p>{{#if inviter_name}}{{ inviter_name }}{{else}}{{#if brand.company_name}}{{ brand.company_name }}{{else}}We{{/if}}{{/if}} invited you to the {{ brand.app_name }} customer portal for {{ customer_name }}, where you can browse products, request quotations, place orders, see invoices and confirm payments.</p>
+<p>The invitation is valid for {{ expires_days }} days.</p>
+<p><a href="{{ invitation_url }}">Accept the invitation</a></p>
+<p>If you were not expecting this, ignore this message.</p>

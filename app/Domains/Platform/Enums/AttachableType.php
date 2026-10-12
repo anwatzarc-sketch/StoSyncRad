@@ -41,6 +41,8 @@ enum AttachableType: string implements SystemEnum
     case RECALL = 'recall';
     case CONDITION_CHANGE = 'condition_change';
     case SCRAP = 'scrap';
+    case PAYMENT_CONFIRMATION = 'payment_confirmation';
+    case DELIVERY_ACKNOWLEDGEMENT = 'delivery_acknowledgement';
 
     public static function fromDocumentType(DocumentType $type): ?self
     {

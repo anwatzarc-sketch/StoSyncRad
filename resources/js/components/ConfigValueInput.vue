@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import EnumSelect from './ui/EnumSelect.vue';
+import PasswordInput from './ui/PasswordInput.vue';
 import type { ConfigKey } from '@/types/shared';
 
 /** Input for one configuration key, by its declared type (Chapter 03 §3.2); the server validates. */
@@ -30,6 +31,13 @@ const listText = computed({
     get: () => (Array.isArray(props.modelValue) ? props.modelValue.join('\n') : ''),
     set: (t: string) => emit('update:modelValue', t.split('\n').map((s) => s.trim()).filter(Boolean)),
 });
+/** Secrets are never sent back by the server; an empty field keeps the stored value. */
+const secret = ref('');
+function onSecret(value: string) {
+    secret.value = value;
+    emit('update:modelValue', value || undefined);
+}
+
 const numeric = computed(() => ['integer', 'decimal', 'percentage', 'money', 'duration'].includes(d.value.type));
 
 function onNumber(event: Event) {
@@ -54,8 +62,8 @@ function onNumber(event: Event) {
         <textarea :id="id" v-model="jsonText" class="input min-h-28 font-mono text-sm" :disabled="disabled" spellcheck="false" @blur="commitJson" />
         <p v-if="jsonError" class="error-text">{{ jsonError }}</p>
     </div>
-    <input v-else-if="d.type === 'secret'" :id="id" type="password" class="input" autocomplete="new-password" placeholder="Leave empty to keep the current secret"
-           :disabled="disabled" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value || undefined)">
+    <PasswordInput v-else-if="d.type === 'secret'" :id="id" :model-value="secret" subject="secret" autocomplete="new-password"
+                   placeholder="Leave empty to keep the current secret" :disabled="disabled" @update:model-value="onSecret" />
     <input v-else-if="numeric" :id="id" class="input tabular-nums" :inputmode="d.type === 'integer' || d.type === 'duration' ? 'numeric' : 'decimal'"
            :value="(modelValue as string | number | null) ?? ''" :disabled="disabled" @input="onNumber">
     <input v-else :id="id" :type="d.type === 'time' ? 'time' : 'text'" class="input" :value="(modelValue as string | null) ?? ''" :disabled="disabled"

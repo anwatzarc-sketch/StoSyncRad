@@ -31,6 +31,7 @@ final class FeatureKeys implements ProvidesConfigKeys
             self::bool('feature.asn', false, 'Advance shipment notices', 'Supplier ASNs pre-filling goods receipts.'),
             self::bool('feature.recalls', true, 'Recalls', 'Lot recalls that lock stock everywhere.'),
             self::bool('feature.multi_currency_purchasing', false, 'Multi-currency purchasing', 'Purchase orders in currencies other than the base currency.'),
+            self::bool('feature.customer_portal', false, 'Customer portal', 'Public landing page, customer registration and the customer portal (catalog, quotations, orders, invoices, payment confirmations, deliveries).'),
         ];
     }
 }

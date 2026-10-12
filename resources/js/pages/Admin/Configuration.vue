@@ -5,7 +5,7 @@ import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
 import ConfigValueInput from '@/components/ConfigValueInput.vue';
-import { get, put } from '@/lib/api';
+import { get, post, put } from '@/lib/api';
 import { humanize, loadEnums } from '@/lib/meta';
 import { notify } from '@/lib/toast';
 import type { ConfigKey } from '@/types/shared';
@@ -71,6 +71,24 @@ onMounted(async () => {
     await loadEnums().catch(() => undefined);
     await load();
 });
+
+/** Test e-mail delivery with the saved mail settings (shown with the messaging group). */
+const canTestMail = computed(() => rows.value.some((r) => r.key.startsWith('messaging.mail.') && r.can_manage));
+const testTo = ref('');
+const testBusy = ref(false);
+async function testMail() {
+    testBusy.value = true;
+    error.value = null;
+    try {
+        const { data } = await post('/api/v1/admin/mail/test', { to: testTo.value });
+        notify(data.status === 'written_to_log' ? 'Mail delivery is set to "log": the test was written to the log file, not sent.' : `Test e-mail sent to ${testTo.value}.`,
+            data.status === 'written_to_log' ? 'info' : 'success');
+    } catch (e) {
+        error.value = e;
+    } finally {
+        testBusy.value = false;
+    }
+}
 </script>
 
 <template>
@@ -83,6 +101,14 @@ onMounted(async () => {
         </select>
         <input v-model="q" type="search" class="input" placeholder="Search settings…" aria-label="Search settings">
     </div>
+    <form v-if="canTestMail && (group === 'messaging' || q.includes('mail'))" class="card mb-4 flex flex-wrap items-end gap-3" @submit.prevent="testMail">
+        <div class="min-w-64 flex-1">
+            <label for="mail-test-to" class="label">Test e-mail delivery</label>
+            <input id="mail-test-to" v-model="testTo" type="email" class="input" placeholder="you@example.com" required>
+            <p class="help">Save the mail settings below first (Mail delivery = smtp, server, port, security, username, password), then send a test.</p>
+        </div>
+        <UiButton type="submit" variant="primary" icon="bell" :loading="testBusy">Send test e-mail</UiButton>
+    </form>
     <ul class="space-y-3">
         <li v-for="row in visible" :key="row.key" class="card">
             <div class="flex flex-wrap items-start gap-3">

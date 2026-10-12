@@ -93,7 +93,7 @@ final class PagesController
         foreach ($this->router->getRoutes() as $route) {
             $uri = $route->uri();
             $permission = $route->getAction('permission');
-            if ($permission === null || ! preg_match('#^api/v1/'.preg_quote($key, '#').'/\{(id|[a-zA-Z]+Id)\}/([a-z0-9/_-]+)$#', $uri, $m)
+            if ($permission === null || $route->getAction('own_screen') === true || ! preg_match('#^api/v1/'.preg_quote($key, '#').'/\{(id|[a-zA-Z]+Id)\}/([a-z0-9/_-]+)$#', $uri, $m)
                 || ! array_intersect($route->methods(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
                 continue;
             }

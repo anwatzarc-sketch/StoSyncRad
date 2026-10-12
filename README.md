@@ -98,13 +98,56 @@ add `--apply` to write it. The same is available in Administration → Config bu
 | `platform:bundle:export` / `platform:bundle:import [--apply]` | Portable configuration |
 | `permissions:audit-routes` / `schema:audit-routes` | CI gates: every permission bound to an endpoint; every write route validated |
 | `types:export-ts [--check]` | Regenerate `resources/js/types/generated.ts` from the backend registries |
-| `outbox:relay`, `webhooks:deliver`, `reservations:expire`, `reports:purge`, `inventory:expiry-monitor`, `inventory:reconcile` | Scheduled jobs (see `routes/console.php`) |
+| `outbox:relay`, `webhooks:deliver`, `reservations:expire`, `reports:purge`, `inventory:expiry-monitor`, `inventory:reconcile`, `sales:expire-quotations` | Scheduled jobs (see `routes/console.php`) |
+
+## Customer Portal (CP-1.1)
+
+A public landing page and a customer-facing portal in the same application, separated from the staff
+app by layout, routes and authorization — not a second system. Switch it on with
+`feature.customer_portal` (Administration → Configuration), set `portal.orders.warehouse_id` (the
+warehouse that fulfils portal orders) and publish items with **Available online**.
+
+| Customers (`/portal`) | Staff (Customers & billing menu) |
+| --- | --- |
+| Register → confirm e-mail → set up an authenticator → wait for approval (or accept an invitation) | Approve registrations (link an existing customer or create one), send invitations |
+| Browse published items (list price, availability band — never costs or locations) | — |
+| Order from list prices or request a quotation; accept/decline/ask to revise | Price and send quotations; confirm portal orders as usual (channel `customer_portal`) |
+| Follow each order (timeline of recorded events, shipments, tracking) and confirm receipt or report issues | Resolve delivery issues (customer returns, replacements) — stock never changes from the portal |
+| See invoices and balances; confirm a payment with a bank slip / screenshot / PDF | Issue invoices (from an order — ordered or delivered quantity, in parts — or per shipment), review evidence, **verify** (records the payment and allocates it), request information, reject, void |
+| Customer administrators invite colleagues, promote them and remove their access (Team page) | Invite contacts (optionally as customer administrator); set customer credit limits; maintain tax rates |
+
+Boundaries: customer accounts (`account_type = customer`) belong to one customer partner and hold only
+the system role `__customer_member` (`customer.*` except `customer.member.manage`) or `__customer_admin`
+(all `customer.*`; the first member of a customer and invited administrators); `EnsureAccountAudience` keeps customer
+sessions on `/portal` + `/api/v1/portal` and staff sessions out of them, by path, for every request.
+Every portal query is scoped to the account's own customer; another customer's id answers 404.
+
+Billing ledger: an upload never changes an invoice. Only `PaymentService` moves `amount_paid` /
+`balance_due` (row locks, one transaction); `payments` and `payment_allocations` are append-only, a bank
+reference can be posted once (`payments_reference_posted_uq`), and voids reverse allocations instead of
+deleting them. Evidence is stored on the private disk with content-detected types and streamed only after
+an authorization check. Settings live under `portal.*` and `billing.*`.
+
+Invoicing and credit: invoice lines are taxed per line (`tax_rates`; line rate → item `tax_rate_id` → default
+rate → `billing.invoice.tax_rate_percent`). `InvoiceWorkflow::fromSalesOrder($id, $actor, 'ordered'|'delivered')`
+and `fromShipment()` bill what is still open; an order line is never invoiced beyond its ordered quantity
+across non-void invoices. `CreditService` blocks portal orders / quotation acceptance above a customer's
+`credit_limit` and lets staff confirm above it only with `billing.credit.override` plus a reason. Sent
+quotations past `valid_until` expire nightly (`sales:expire-quotations`, 00:45).
+
+E-mail: all application mail goes through `TransactionalMailer`. `messaging.mail.transport` = `environment`
+(the `.env` mailer), `smtp` (server, port, security, username and encrypted password from the registry — no
+redeploy needed) or `log`. Administration → Configuration → messaging has **Send test e-mail**
+(`POST /api/v1/admin/mail/test`).
+
+Product photos: `items/{id}/images` (JPG/PNG/WebP, content-checked, private disk, limits under
+`catalog.images.*`); the primary photo is shown in the catalogue and the portal.
 
 ## Code map
 
 | Path | Contents |
 | --- | --- |
-| `app/Domains/*` | Modular monolith: Catalog, Organization, Partners, IdentityAccess, Inventory (ledger, poster, reservations, valuation), Procurement, Receiving, Transfers, Fulfillment, Stocktaking, Planning, ReportingEngine, Messaging, DataExchange, Platform (setup, config, brand, templates), Audit |
+| `app/Domains/*` | Modular monolith: Catalog, Organization, Partners, IdentityAccess, Inventory (ledger, poster, reservations, valuation), Procurement, Receiving, Transfers, Fulfillment, Stocktaking, Planning, ReportingEngine, Messaging, DataExchange, Platform (setup, config, brand, templates), Audit, CustomerPortal, Sales (quotations), Billing (invoices, payments) |
 | `app/Support` | Schema validation, enums, documents, transactions, HTTP middleware |
 | `app/Http/Controllers/Api` | JSON API (`/api/v1`), generic resource CRUD from `ResourceRegistry`, workflow actions |
 | `routes/api/*.php` | One permission per endpoint (`->permission()`), payload schema per write (`->schema()` / `->noBody()`) |

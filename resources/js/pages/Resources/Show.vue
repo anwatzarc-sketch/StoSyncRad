@@ -6,6 +6,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import ActionDialog from '@/components/ActionDialog.vue';
+import ItemImagesPanel from '@/components/ItemImagesPanel.vue';
 import { download, get } from '@/lib/api';
 import { loadEnums, loadSchema, propertyLabel, type SchemaProperty } from '@/lib/meta';
 import { columnsFor, displayValue, PRINT_TYPES } from '@/lib/display';
@@ -36,6 +37,15 @@ const fields = computed(() => {
 const lines = computed(() => (Array.isArray(record.value?.lines) ? record.value!.lines as Record<string, any>[] : []));
 const related = computed(() => props.resource.relations.filter((r) => r !== 'lines' && Array.isArray(record.value?.[r]) && record.value![r].length));
 const printType = computed(() => PRINT_TYPES[props.resource.key]);
+/** Relations that are private files, downloaded through their resource's authorized route. */
+const FILE_RELATIONS: Record<string, string> = { 'payment-confirmations': 'evidence' };
+async function openFile(file: { id: string; original_filename: string }) {
+    try {
+        await download(`${props.resource.api}/${props.id}/${FILE_RELATIONS[props.resource.key]}/${file.id}`, file.original_filename);
+    } catch (e) {
+        error.value = e;
+    }
+}
 /** Warehouse-floor actions open their scan-first task screen instead of a form dialog. */
 const TASKS: Record<string, Record<string, string>> = {
     transfers: { dispatch: 'dispatch', receive: 'receive' },
@@ -117,6 +127,8 @@ async function print() {
             </dl>
         </section>
 
+        <ItemImagesPanel v-if="resource.key === 'items'" :item-id="id" :can-edit="resource.can_update" />
+
         <section v-if="lines.length" class="card">
             <h2 class="mb-3 text-lg font-semibold">Lines</h2>
             <DataTable :columns="columnsFor(lineProperties, lines[0])" :rows="lines" caption="Lines" />
@@ -124,7 +136,14 @@ async function print() {
 
         <section v-for="rel in related" :key="rel" class="card">
             <h2 class="mb-3 text-lg font-semibold">{{ propertyLabel(rel) }}</h2>
-            <DataTable :columns="columnsFor({}, record[rel][0])" :rows="record[rel]" :caption="rel" />
+            <ul v-if="FILE_RELATIONS[resource.key] === rel" class="divide-y divide-line">
+                <li v-for="f in record[rel]" :key="f.id" class="flex flex-wrap items-center gap-3 py-2 text-sm">
+                    <span class="min-w-0 flex-1 truncate">{{ f.original_filename }}</span>
+                    <span class="text-ink-muted">{{ f.mime_type }} · {{ Math.ceil(f.file_size / 1024) }} KB</span>
+                    <UiButton icon="download" @click="openFile(f)">Download</UiButton>
+                </li>
+            </ul>
+            <DataTable v-else :columns="columnsFor({}, record[rel][0])" :rows="record[rel]" :caption="rel" />
         </section>
     </div>
     <div v-else-if="!error" class="space-y-3" aria-busy="true">

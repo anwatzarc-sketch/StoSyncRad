@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { post } from '@/lib/api';
 import { useShared } from '@/composables/useShared';
 
@@ -78,7 +79,7 @@ async function forgot() {
         </div>
         <div>
             <label for="password" class="label">Password</label>
-            <input id="password" v-model="password" class="input" type="password" autocomplete="current-password" required>
+            <PasswordInput id="password" v-model="password" autocomplete="current-password" required />
         </div>
         <UiButton variant="primary" type="submit" class="w-full" :loading="busy">Sign in</UiButton>
         <button type="button" class="block min-h-11 w-full text-center text-sm text-ink-muted underline" @click="step = 'forgot'">Forgot your password?</button>

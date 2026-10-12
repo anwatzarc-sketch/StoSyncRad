@@ -1,0 +1,22 @@
+<div class="brand">
+  <table class="grid"><tr>
+    <td>
+      <div class="name">{{#if company.trading_name}}{{ company.trading_name }}{{else}}{{#if company.legal_name}}{{ company.legal_name }}{{else}}{{ brand.app_name }}{{/if}}{{/if}}</div>
+      {{#if company.tax_id}}<div class="muted">Tax ID: {{ company.tax_id }}</div>{{/if}}
+      {{#if company.phone}}<div class="muted">{{ company.phone }} {{ company.email }}</div>{{/if}}
+    </td>
+    <td class="n"><h1>{{ title }}</h1><div><strong>{{ document.document_number }}</strong>{{#if document.revision}} · revision {{ document.revision }}{{/if}}</div></td>
+  </tr></table>
+</div>
+
+<table class="grid">
+  <tr><td><strong>Customer</strong><br>{{ document.customer_name }}{{#if document.customer_tax_id}}<br>Tax ID {{ document.customer_tax_id }}{{/if}}{{#if document.reference}}<br>Your ref: {{ document.reference }}{{/if}}</td>
+      <td class="n">Date: {{ document.sent_at | date }}<br><strong>Valid until: {{ document.valid_until | date }}</strong><br>Currency: {{ document.currency }}</td></tr>
+</table>
+<table>
+  <thead><tr><th>#</th><th>SKU</th><th>Description</th><th class="n">Qty</th><th>Unit</th><th class="n">Unit price</th><th class="n">Total</th></tr></thead>
+  <tbody>{{#each lines as l}}<tr><td>{{ l.line_no }}</td><td>{{ l.sku }}</td><td>{{ l.name }}</td><td class="n">{{ l.quantity | qty }}</td><td>{{ l.uom }}</td><td class="n">{{ l.unit_price | money }}</td><td class="n">{{ l.line_total | money }}</td></tr>{{/each}}</tbody>
+</table>
+<table class="grid"><tr><td></td><td class="n"><strong>Total: {{ document.total | money }} {{ document.currency }}</strong></td></tr></table>
+{{#if document.staff_note}}<h2>Notes</h2><p>{{ document.staff_note | nl2br }}</p>{{/if}}
+<p class="muted">Accept this quotation in the customer portal before it expires. Printed {{ printed_at | datetime }}{{#if brand.legal_footer}} · {{ brand.legal_footer }}{{/if}}</p>

@@ -1,0 +1,3 @@
+<p>Hello {{ recipient_name }},</p>
+{{#if approved}}<p>Your customer portal account for {{ company_name }} is ready. Sign in with your email address, your password and the code from your authenticator app.</p>
+<p><a href="{{ login_url }}">Sign in to the customer portal</a></p>{{else}}<p>We could not approve the customer portal registration for {{ company_name }}.</p>{{#if reason}}<p>{{ reason }}</p>{{/if}}<p>Please contact us if you have questions.</p>{{/if}}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Fulfillment\Services;
 
+use App\Domains\Billing\Services\CreditService;
 use App\Domains\Catalog\Enums\OutOfStockBehavior;
 use App\Domains\Catalog\Models\Item;
 use App\Domains\Fulfillment\Enums\PickListStatus;
@@ -40,6 +41,7 @@ use App\Support\Math\Decimal as D;
 use App\Support\Transactions\PostingContext;
 use App\Support\Transactions\PostingOutcome;
 use App\Support\Transactions\PostingPipeline;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -103,21 +105,7 @@ final class SalesOrderWorkflow
             $order->forceFill(['updated_by' => $actor->id])->save();
 
             if (array_key_exists('lines', $data)) {
-                SalesOrderLine::query()->where('sales_order_id', $order->id)->delete();
-                $total = '0';
-                foreach (array_values($data['lines']) as $i => $line) {
-                    [$item, $variantId, $packQty] = $this->resolveItem($line, $i);
-                    [$uomId, $base, $factor] = $packQty === null ? $this->lines->toBase($item->id, $line['uom_id'] ?? null, $line['quantity'])
-                        : [$item->base_uom_id, D::mul($line['quantity'], $packQty, D::QTY_SCALE), $packQty];
-                    $lineTotal = isset($line['unit_price']) ? D::mul($line['quantity'], $line['unit_price'], D::MONEY_SCALE) : '0';
-                    $total = D::add($total, $lineTotal, D::MONEY_SCALE);
-                    SalesOrderLine::query()->create([
-                        'sales_order_id' => $order->id, 'line_no' => $i + 1, 'item_id' => $item->id, 'item_variant_id' => $variantId,
-                        'uom_id' => $uomId, 'conversion_factor_snapshot' => $factor, 'quantity' => $line['quantity'], 'base_quantity' => $base,
-                        'unit_price' => $line['unit_price'] ?? null, 'line_total' => $lineTotal, 'notes' => $line['notes'] ?? null,
-                    ]);
-                }
-                $order->forceFill(['total' => $total])->save();
+                $this->writeLines($order, $data['lines']);
             }
             $this->audit($actor, $id === null ? 'fulfillment.sales_order.created' : 'fulfillment.sales_order.updated', $order, null,
                 ['document_number' => $order->document_number, 'channel' => $order->channel->value]);
@@ -126,14 +114,81 @@ final class SalesOrderWorkflow
         });
     }
 
-    /** Confirm; reserves stock per `stock.reservation.policy`. E-commerce orders honour the backorder policy. */
-    public function confirm(string $id, UserAccount $actor, ?int $version = null): SalesOrder
+    /**
+     * Customer Portal intake (CP-1.1 section 5.3). The customer, warehouse and prices are decided by the
+     * portal services on the server, never taken from the request. Idempotent on (external_source,
+     * external_order_id): a retried submission returns the order created the first time. The order
+     * stays a draft until staff confirm it; reservation, picking and delivery are the normal actions.
+     *
+     * @param  array{warehouse_id: string, external_source: string, external_order_id: string, currency?: ?string, shipping_address?: ?array,
+     *     reference?: ?string, notes?: ?string, lines: array<int, array{item_id: string, quantity: string, unit_price: string}>}  $data
+     */
+    public function intakeForCustomer(array $data, Partner $customer, UserAccount $account): SalesOrder
     {
-        return DB::transaction(function () use ($id, $actor, $version) {
+        $existing = fn () => SalesOrder::query()->where('external_source', $data['external_source'])->where('external_order_id', $data['external_order_id'])->first();
+        $found = $existing();
+        if ($found !== null) {
+            return $found->customer_partner_id === $customer->id ? $found
+                : throw DomainException::of(ErrorCode::DUPLICATE_RESOURCE, 'This order reference is already used.');
+        }
+        try {
+            return DB::transaction(function () use ($data, $customer, $account) {
+                $this->assertChannelEnabled(SalesChannel::CUSTOMER_PORTAL);
+                $warehouse = Warehouse::query()->findOrFail($data['warehouse_id']);
+                $warehouse->assertOperational();
+                $order = new SalesOrder;
+                $order->forceFill([
+                    'document_number' => $this->nextNumber(DocumentType::SALES_ORDER, $warehouse->id),
+                    'warehouse_id' => $warehouse->id, 'branch_id' => $warehouse->branch_id, 'channel' => SalesChannel::CUSTOMER_PORTAL,
+                    'customer_partner_id' => $customer->id, 'external_source' => $data['external_source'], 'external_order_id' => $data['external_order_id'],
+                    'status' => S::DRAFT, 'created_by' => $account->id, 'updated_by' => $account->id, 'document_date' => now()->toDateString(),
+                    'currency' => $data['currency'] ?? null, 'shipping_address' => $data['shipping_address'] ?? null,
+                    'reference' => $data['reference'] ?? null, 'notes' => $data['notes'] ?? null,
+                ])->save();
+                $this->writeLines($order, $data['lines']);
+                $this->audit($account, 'fulfillment.sales_order.created', $order, null, ['document_number' => $order->document_number, 'channel' => $order->channel->value,
+                    'source' => $data['external_source']]);
+                $this->publish('fulfillment.sales_order.placed', $order, ['document_number' => $order->document_number, 'warehouse_id' => $order->warehouse_id,
+                    'customer_partner_id' => $customer->id, 'customer_name' => $customer->name]);
+
+                return $order->refresh();
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            return $existing() ?? throw $e;   // a concurrent retry won the race
+        }
+    }
+
+    /** A customer may withdraw an order staff have not confirmed yet (nothing is reserved). */
+    public function cancelByCustomer(string $id, Partner $customer, UserAccount $account, ?string $reason): SalesOrder
+    {
+        return DB::transaction(function () use ($id, $customer, $account, $reason) {
+            $order = $this->lockDocument(SalesOrder::class, $id);
+            if ($order->customer_partner_id !== $customer->id) {
+                throw DomainException::notFound('sales order');
+            }
+            if ($order->status !== S::DRAFT) {
+                throw DomainException::of(ErrorCode::INVALID_STATE_TRANSITION, 'This order is already being processed. Please contact us to change it.',
+                    ['status' => $order->status->value]);
+            }
+            $this->transition($order, S::CANCELLED, ['cancelled_by' => $account->id, 'cancelled_at' => now(), 'cancellation_reason' => $reason]);
+            $this->audit($account, 'fulfillment.sales_order.cancelled', $order, null, ['by' => 'customer'], $reason);
+            $this->publish('fulfillment.sales_order.cancelled', $order, ['document_number' => $order->document_number, 'external_order_id' => $order->external_order_id,
+                'customer_partner_id' => $customer->id, 'warehouse_id' => $order->warehouse_id]);
+
+            return $order;
+        });
+    }
+
+    /** Confirm; reserves stock per `stock.reservation.policy`. E-commerce orders honour the backorder policy. */
+    public function confirm(string $id, UserAccount $actor, ?int $version = null, ?string $overrideReason = null): SalesOrder
+    {
+        return DB::transaction(function () use ($id, $actor, $version, $overrideReason) {
             $order = $this->lockDocument(SalesOrder::class, $id);
             $this->authorizeWarehouse($actor, 'fulfillment.sales_order.confirm', $order->warehouse_id);
             $this->expectVersion($order, $version);
             $this->assertChannelEnabled($order->channel);
+            // Customer credit limit (Billing): above it only with billing.credit.override and a reason.
+            app(CreditService::class)->assertCanConfirm($order, $actor, $overrideReason);
             $lines = SalesOrderLine::query()->where('sales_order_id', $order->id)->orderBy('line_no')->get();
             if ($lines->isEmpty()) {
                 throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'The order has no lines.');
@@ -261,9 +316,29 @@ final class SalesOrderWorkflow
         });
     }
 
+    /** Replace the lines (base-unit quantities, line totals from the given unit prices) and the order total. */
+    private function writeLines(SalesOrder $order, array $lines): void
+    {
+        SalesOrderLine::query()->where('sales_order_id', $order->id)->delete();
+        $total = '0';
+        foreach (array_values($lines) as $i => $line) {
+            [$item, $variantId, $packQty] = $this->resolveItem($line, $i);
+            [$uomId, $base, $factor] = $packQty === null ? $this->lines->toBase($item->id, $line['uom_id'] ?? null, $line['quantity'])
+                : [$item->base_uom_id, D::mul($line['quantity'], $packQty, D::QTY_SCALE), $packQty];
+            $lineTotal = isset($line['unit_price']) ? D::mul($line['quantity'], $line['unit_price'], D::MONEY_SCALE) : '0';
+            $total = D::add($total, $lineTotal, D::MONEY_SCALE);
+            SalesOrderLine::query()->create([
+                'sales_order_id' => $order->id, 'line_no' => $i + 1, 'item_id' => $item->id, 'item_variant_id' => $variantId,
+                'uom_id' => $uomId, 'conversion_factor_snapshot' => $factor, 'quantity' => $line['quantity'], 'base_quantity' => $base,
+                'unit_price' => $line['unit_price'] ?? null, 'line_total' => $lineTotal, 'notes' => $line['notes'] ?? null,
+            ]);
+        }
+        $order->forceFill(['total' => $total])->save();
+    }
+
     public function assertChannelEnabled(SalesChannel $channel): void
     {
-        $flag = $channel === SalesChannel::ECOMMERCE ? 'feature.ecommerce_fulfillment' : 'feature.retail_sales';
+        $flag = $channel->featureFlag();
         if (! $this->config->feature($flag)) {
             throw DomainException::featureDisabled($flag);
         }

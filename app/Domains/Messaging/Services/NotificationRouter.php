@@ -17,7 +17,7 @@ use App\Domains\Platform\Config\PlatformConfig;
 use App\Domains\Platform\Services\BrandResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 /**
  * Turns outbox events into notifications for the people who must act (Chapter 11 §11.7): each
@@ -52,6 +52,24 @@ final class NotificationRouter
         'reporting.report.completed' => ['report_run_completed', 'Your export "{report_name}" is ready', null, null, 'runner_account_id', '/reports/runs?run={aggregate_id}'],
         'reporting.report.failed' => ['report_run_failed', 'Your export "{report_name}" failed', null, null, 'runner_account_id', '/reports/runs?run={aggregate_id}'],
         'exchange.import.completed' => ['import_completed', 'Import {filename} finished: {imported} imported, {invalid} invalid', null, null, 'created_by', '/imports?batch={aggregate_id}'],
+        // Customer portal — staff who can act
+        'portal.registration.submitted' => ['customer_registration_pending', 'New customer registration: {company_name}', 'portal.registration.approve', null, null, '/r/customer-registrations/{aggregate_id}'],
+        'sales.quotation.requested' => ['quotation_requested', 'Quotation request {document_number} from {customer_name}', 'sales.quotation.price', null, null, '/r/quotations/{aggregate_id}'],
+        'sales.quotation.revision_requested' => ['quotation_requested', '{customer_name} asked to revise quotation {document_number}', 'sales.quotation.price', null, null, '/r/quotations/{aggregate_id}'],
+        'sales.quotation.accepted' => ['customer_order_placed', '{customer_name} accepted quotation {document_number}: order {sales_order_number}', 'fulfillment.sales_order.confirm', null, null, '/r/sales-orders/{sales_order_id}'],
+        'fulfillment.sales_order.placed' => ['customer_order_placed', 'New customer order {document_number} from {customer_name}', 'fulfillment.sales_order.confirm', 'warehouse_id', null, '/r/sales-orders/{aggregate_id}'],
+        'billing.payment_confirmation.submitted' => ['payment_confirmation_submitted', 'Payment confirmation {document_number} from {customer_name}: {amount} {currency}', 'billing.payment_confirmation.review', null, null, '/r/payment-confirmations/{aggregate_id}'],
+        'portal.delivery.discrepancy_reported' => ['delivery_discrepancy', 'Delivery issue reported on order {document_number} by {customer_name}', 'portal.acknowledgement.resolve', null, null, '/r/delivery-acknowledgements/{aggregate_id}'],
+        // Customer portal — the customer's own members ("customer:" payload key holds the customer, "customer_order:" a sales order)
+        'sales.quotation.sent' => ['quotation_update', 'Quotation {document_number} is ready for you', null, null, 'customer:customer_partner_id', '/portal/quotations/{aggregate_id}'],
+        'sales.quotation.expired' => ['quotation_update', 'Quotation {document_number} has expired. Ask us for a new one if you still need it.', null, null, 'customer:customer_partner_id', '/portal/quotations/{aggregate_id}'],
+        'fulfillment.sales_order.confirmed' => ['order_update', 'Order {document_number} is confirmed', null, null, 'customer_order:aggregate_id', '/portal/orders/{aggregate_id}'],
+        'fulfillment.shipment.handed_over' => ['order_update', 'Your order is on its way (shipment {document_number})', null, null, 'customer_order:sales_order_id', '/portal/orders/{sales_order_id}'],
+        'fulfillment.shipment.delivered' => ['order_update', 'Shipment {document_number} was delivered', null, null, 'customer_order:sales_order_id', '/portal/orders/{sales_order_id}'],
+        'billing.invoice.issued' => ['invoice_issued', 'Invoice {document_number}: {total} {currency}', null, null, 'customer:customer_partner_id', '/portal/invoices/{aggregate_id}'],
+        'billing.payment_confirmation.verified' => ['payment_update', 'Your payment {document_number} is verified', null, null, 'customer:customer_partner_id', '/portal/payments/{aggregate_id}'],
+        'billing.payment_confirmation.info_requested' => ['payment_update', 'We need more information about payment {document_number}', null, null, 'customer:customer_partner_id', '/portal/payments/{aggregate_id}'],
+        'billing.payment_confirmation.rejected' => ['payment_update', 'Payment confirmation {document_number} was not accepted', null, null, 'customer:customer_partner_id', '/portal/payments/{aggregate_id}'],
     ];
 
     public function __construct(private readonly Access $access, private readonly PlatformConfig $config, private readonly BrandResolver $brand) {}
@@ -68,9 +86,13 @@ final class NotificationRouter
         $vars = $payload + ['aggregate_id' => $event->aggregate_id];
         $title = $this->fill($title, $vars);
         $link = $this->fill($link, $vars);
-        $recipients = $recipientKey !== null
-            ? UserAccount::query()->whereKey($payload[$recipientKey] ?? null)->get()
-            : $this->holders((string) $permission, $warehouseKey === '@aggregate' ? $event->aggregate_id : ($warehouseKey !== null ? ($payload[$warehouseKey] ?? null) : null));
+        $recipients = match (true) {
+            $recipientKey !== null && str_starts_with($recipientKey, 'customer:') => $this->customerMembers($vars[substr($recipientKey, 9)] ?? null),
+            $recipientKey !== null && str_starts_with($recipientKey, 'customer_order:') => $this->customerMembers(
+                DB::table('sales_orders')->whereKey($vars[substr($recipientKey, 15)] ?? null)->value('customer_partner_id')),
+            $recipientKey !== null => UserAccount::query()->whereKey($payload[$recipientKey] ?? null)->get(),
+            default => $this->holders((string) $permission, $warehouseKey === '@aggregate' ? $event->aggregate_id : ($warehouseKey !== null ? ($payload[$warehouseKey] ?? null) : null)),
+        };
         $defaults = array_map(fn ($c) => $c instanceof NotificationChannel ? $c->value : (string) $c, (array) $this->config->get("messaging.events.$code.channels"));
         $created = 0;
         foreach ($recipients as $account) {
@@ -84,7 +106,7 @@ final class NotificationRouter
             $channels = $pref !== null && $pref->channels !== [] ? array_values(array_intersect($pref->channels, $defaults ?: ['in_app'])) : $defaults;
             if (in_array(NotificationChannel::IN_APP->value, $channels, true) || $channels === []) {
                 $inserted = DB::table('notifications')->insertOrIgnore([
-                    'id' => (string) \Illuminate\Support\Str::uuid7(), 'user_account_id' => $account->id, 'event_type' => $code, 'title' => $title,
+                    'id' => (string) Str::uuid7(), 'user_account_id' => $account->id, 'event_type' => $code, 'title' => $title,
                     'link' => $link, 'data' => json_encode(['event' => $event->event_type, 'aggregate_type' => $event->aggregate_type,
                         'aggregate_id' => $event->aggregate_id] + $payload), 'status' => NotificationStatus::UNREAD->value,
                     'outbox_event_id' => $event->id, 'created_at' => now(), 'updated_at' => now(),
@@ -97,6 +119,13 @@ final class NotificationRouter
         }
 
         return $created;
+    }
+
+    /** Active customer portal accounts of a customer (none for customers without portal access). */
+    private function customerMembers(?string $partnerId)
+    {
+        return $partnerId === null ? collect() : UserAccount::query()->where('account_type', AccountType::CUSTOMER->value)
+            ->where('customer_partner_id', $partnerId)->get();
     }
 
     /** Active human accounts holding the permission (in the warehouse, when given). Platform super admins are not broadcast to. */
@@ -115,14 +144,9 @@ final class NotificationRouter
     private function email(UserAccount $account, string $title, ?string $link): void
     {
         $brand = $this->brand->publicProfile();
-        $from = (string) $this->config->get('messaging.mail.from_address');
         try {
-            Mail::raw($title.($link ? "\n\n".url($link) : ''), function ($m) use ($account, $title, $brand, $from) {
-                $m->to($account->email)->subject('['.($brand['app_short_name'] ?? 'Stock').'] '.$title);
-                if ($from !== '') {
-                    $m->from($from, (string) $this->config->get('messaging.mail.from_name') ?: ($brand['app_name'] ?? null));
-                }
-            });
+            app(TransactionalMailer::class)->text((string) $account->email, '['.($brand['company_name'] ?? $brand['app_short_name'] ?? 'Stock').'] '.$title,
+                $title.($link ? "\n\n".url($link) : ''));
         } catch (\Throwable $e) {
             Log::warning('Notification email failed', ['account' => $account->id, 'error' => $e->getMessage()]);
         }

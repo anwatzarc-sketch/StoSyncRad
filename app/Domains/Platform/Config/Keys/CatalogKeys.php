@@ -36,6 +36,8 @@ final class CatalogKeys implements ProvidesConfigKeys
             self::enum('catalog.barcode.default_symbology', BarcodeSymbology::class, 'code128', 'Default barcode symbology', 'Symbology for generated barcodes and labels.'),
             self::bool('catalog.barcode.generate_on_create', false, 'Generate barcodes', 'Generate an internal barcode for new items without one.'),
             self::bool('catalog.variants.enabled', true, 'Variants', 'Enable item attributes and variants.'),
+            self::int('catalog.images.max_file_mb', 5, 'Largest product photo (MB)', 'Largest product photo that can be uploaded.', 'G', 1, 20),
+            self::int('catalog.images.max_per_item', 8, 'Photos per item', 'Most photos one item can have.', 'G', 1, 30),
             self::json('catalog.abc.thresholds', ['a' => '0.80', 'b' => '0.95'], 'ABC thresholds', 'Cumulative value share boundaries for A and B classes.'),
             self::int('catalog.abc.recalculate_days', 30, 'ABC recalculation interval', 'Days between automatic ABC classification runs.', 'G', 1, 365),
             self::int('catalog.max_images_per_item', 10, 'Images per item', 'Maximum number of images per item.', 'G', 1, 50),

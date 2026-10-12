@@ -4,18 +4,29 @@ declare(strict_types=1);
 
 namespace App\Http\Support;
 
+use App\Domains\Billing\Models as Bill;
+use App\Domains\Billing\Schemas as BillS;
+use App\Domains\Billing\Services as BillW;
 use App\Domains\Catalog\Actions\SaveCategoryAction;
 use App\Domains\Catalog\Actions\SaveItemAction;
 use App\Domains\Catalog\Models as Cat;
 use App\Domains\Catalog\Schemas as CatS;
+use App\Domains\CustomerPortal\Models as Cp;
+use App\Domains\CustomerPortal\Schemas\CustomerInvitationSchema;
+use App\Domains\CustomerPortal\Services\InvitationService;
 use App\Domains\Fulfillment\Models as Ful;
 use App\Domains\Fulfillment\Schemas as FulS;
 use App\Domains\Fulfillment\Services as FulW;
+use App\Domains\IdentityAccess\Actions\CreateUserAccountAction;
+use App\Domains\IdentityAccess\Actions\SaveRoleAction;
 use App\Domains\IdentityAccess\Models as Id;
 use App\Domains\IdentityAccess\Schemas as IdS;
 use App\Domains\Inventory\Documents as InvW;
 use App\Domains\Inventory\Models as Inv;
 use App\Domains\Inventory\Schemas as InvS;
+use App\Domains\Organization\Actions\CreateBranchAction;
+use App\Domains\Organization\Actions\CreateStorageLocationAction;
+use App\Domains\Organization\Actions\CreateWarehouseAction;
 use App\Domains\Organization\Models as Org;
 use App\Domains\Organization\Schemas as OrgS;
 use App\Domains\Partners\Actions\SavePartnerAction;
@@ -26,10 +37,13 @@ use App\Domains\Planning\Schemas as PlanS;
 use App\Domains\Planning\Services\AllocationPlanWorkflow;
 use App\Domains\Procurement\Models as Pro;
 use App\Domains\Procurement\Schemas as ProS;
+use App\Domains\Procurement\Schemas\SupplierReturnSchema;
 use App\Domains\Procurement\Services as ProW;
+use App\Domains\Procurement\Services\SupplierReturnWorkflow;
 use App\Domains\Receiving\Models as Rec;
 use App\Domains\Receiving\Schemas as RecS;
 use App\Domains\Receiving\Services\GoodsReceiptWorkflow;
+use App\Domains\Sales\Models\Quotation;
 use App\Domains\Stocktaking\Models as Stk;
 use App\Domains\Stocktaking\Schemas as StkS;
 use App\Domains\Stocktaking\Services as StkW;
@@ -79,13 +93,13 @@ final class ResourceRegistry
 
             // ---- Organization & partners -----------------------------------------------
             'branches' => ['model' => Org\Branch::class, 'schema' => OrgS\BranchSchema::class, 'read' => 'organization.branch.read',
-                'create' => 'organization.branch.create', 'update' => 'organization.branch.update', 'writer' => [\App\Domains\Organization\Actions\CreateBranchAction::class, 'execute']],
+                'create' => 'organization.branch.create', 'update' => 'organization.branch.update', 'writer' => [CreateBranchAction::class, 'execute']],
             'warehouses' => ['model' => Org\Warehouse::class, 'schema' => OrgS\WarehouseSchema::class, 'read' => 'organization.warehouse.read',
                 'create' => 'organization.warehouse.create', 'update' => 'organization.warehouse.update', 'warehouse' => ['id'],
-                'writer' => [\App\Domains\Organization\Actions\CreateWarehouseAction::class, 'execute']],
+                'writer' => [CreateWarehouseAction::class, 'execute']],
             'storage-locations' => ['model' => Org\StorageLocation::class, 'schema' => OrgS\StorageLocationSchema::class, 'read' => 'organization.storage_location.read',
                 'create' => 'organization.storage_location.create', 'update' => 'organization.storage_location.update', 'warehouse' => ['warehouse_id'],
-                'writer' => [\App\Domains\Organization\Actions\CreateStorageLocationAction::class, 'execute']],
+                'writer' => [CreateStorageLocationAction::class, 'execute']],
             'storage-categories' => ['model' => Org\StorageCategory::class, 'schema' => OrgS\StorageCategorySchema::class, 'read' => 'organization.storage_location.read',
                 'create' => 'organization.storage_location.create', 'update' => 'organization.storage_location.update'],
             'putaway-rules' => ['model' => Org\PutawayRule::class, 'schema' => OrgS\PutawayRuleSchema::class, 'read' => 'organization.putaway_rule.read',
@@ -97,9 +111,9 @@ final class ResourceRegistry
             'persons' => ['model' => Id\Person::class, 'schema' => IdS\PersonSchema::class, 'read' => 'identity.person.read', 'create' => 'identity.person.create',
                 'update' => 'identity.person.update'],
             'roles' => ['model' => Id\Role::class, 'schema' => IdS\RoleSchema::class, 'read' => 'identity.role.read', 'create' => 'identity.role.create',
-                'update' => 'identity.role.update', 'writer' => [\App\Domains\IdentityAccess\Actions\SaveRoleAction::class, 'execute'], 'with' => ['permissions']],
+                'update' => 'identity.role.update', 'writer' => [SaveRoleAction::class, 'execute'], 'with' => ['permissions']],
             'accounts' => ['model' => Id\UserAccount::class, 'schema' => IdS\UserAccountSchema::class, 'read' => 'identity.account.read',
-                'create' => 'identity.account.create', 'update' => 'identity.account.update', 'writer' => [\App\Domains\IdentityAccess\Actions\CreateUserAccountAction::class, 'execute'],
+                'create' => 'identity.account.create', 'update' => 'identity.account.update', 'writer' => [CreateUserAccountAction::class, 'execute'],
                 'with' => ['person', 'assignments']],
             'role-assignments' => ['model' => Id\RoleAssignment::class, 'schema' => null, 'read' => 'identity.assignment.read', 'writer' => false],
             'sod-rules' => ['model' => Id\SodRule::class, 'schema' => null, 'read' => 'identity.sod_rule.read', 'writer' => false],
@@ -108,8 +122,8 @@ final class ResourceRegistry
             // ---- Procurement & receiving ---------------------------------------------
             'purchase-requests' => $doc(Pro\PurchaseRequest::class, ProS\PurchaseRequestSchema::class, 'procurement.purchase_request', [ProW\PurchaseRequestWorkflow::class, 'save']),
             'purchase-orders' => $doc(Pro\PurchaseOrder::class, ProS\PurchaseOrderSchema::class, 'procurement.purchase_order', [ProW\PurchaseOrderWorkflow::class, 'save']),
-            'supplier-returns' => $doc(Pro\SupplierReturn::class, \App\Domains\Procurement\Schemas\SupplierReturnSchema::class, 'procurement.supplier_return',
-                [\App\Domains\Procurement\Services\SupplierReturnWorkflow::class, 'save']),
+            'supplier-returns' => $doc(Pro\SupplierReturn::class, SupplierReturnSchema::class, 'procurement.supplier_return',
+                [SupplierReturnWorkflow::class, 'save']),
             'goods-receipts' => $doc(Rec\GoodsReceipt::class, RecS\GoodsReceiptSchema::class, 'receiving.goods_receipt', [GoodsReceiptWorkflow::class, 'save']),
             'putaway-tasks' => ['model' => Rec\PutawayTask::class, 'schema' => null, 'read' => 'receiving.putaway.read', 'warehouse' => ['warehouse_id'], 'writer' => false],
 
@@ -127,9 +141,27 @@ final class ResourceRegistry
             'pick-lists' => ['model' => Ful\PickList::class, 'schema' => null, 'read' => 'fulfillment.pick_list.read', 'warehouse' => ['warehouse_id'], 'with' => ['lines'], 'writer' => false],
             'sales-orders' => $doc(Ful\SalesOrder::class, FulS\SalesOrderSchema::class, 'fulfillment.sales_order', [FulW\SalesOrderWorkflow::class, 'save']),
             'shipments' => ['model' => Ful\Shipment::class, 'schema' => null, 'read' => 'fulfillment.shipment.read', 'warehouse' => ['warehouse_id'],
-                'with' => ['packages', 'events'], 'writer' => false, 'feature' => 'feature.ecommerce_fulfillment'],
+                'with' => ['packages', 'events'], 'writer' => false],
             'customer-returns' => ['model' => Ful\CustomerReturn::class, 'schema' => null, 'read' => 'fulfillment.customer_return.read', 'warehouse' => ['warehouse_id'],
                 'with' => ['lines'], 'writer' => false, 'feature' => 'feature.customer_returns'],
+
+            // ---- Customer portal & billing (CP-1.1) --------------------------------------
+            'customer-registrations' => ['model' => Cp\CustomerRegistration::class, 'schema' => null, 'read' => 'portal.registration.read', 'writer' => false,
+                'feature' => 'feature.customer_portal'],
+            'customer-invitations' => ['model' => Cp\CustomerInvitation::class, 'schema' => CustomerInvitationSchema::class, 'read' => 'portal.invitation.read',
+                'create' => 'portal.invitation.create', 'writer' => [InvitationService::class, 'create'], 'feature' => 'feature.customer_portal'],
+            'delivery-acknowledgements' => ['model' => Cp\DeliveryAcknowledgement::class, 'schema' => null, 'read' => 'portal.acknowledgement.read',
+                'with' => ['lines'], 'writer' => false, 'feature' => 'feature.customer_portal'],
+            'quotations' => ['model' => Quotation::class, 'schema' => null, 'read' => 'sales.quotation.read', 'with' => ['lines'], 'writer' => false,
+                'feature' => 'feature.customer_portal'],
+            'invoices' => ['model' => Bill\Invoice::class, 'schema' => BillS\InvoiceSchema::class, 'read' => 'billing.invoice.read', 'create' => 'billing.invoice.create',
+                'update' => 'billing.invoice.create', 'with' => ['lines', 'allocations'], 'writer' => [BillW\InvoiceWorkflow::class, 'save']],
+            'tax-rates' => ['model' => Bill\TaxRate::class, 'schema' => BillS\TaxRateSchema::class, 'read' => 'billing.tax.read', 'create' => 'billing.tax.manage',
+                'update' => 'billing.tax.manage', 'writer' => [BillW\TaxRates::class, 'save']],
+            'payment-confirmations' => ['model' => Bill\PaymentConfirmation::class, 'schema' => null, 'read' => 'billing.payment_confirmation.read',
+                'with' => ['evidence'], 'writer' => false],
+            'payments' => ['model' => Bill\Payment::class, 'schema' => BillS\PaymentSchema::class, 'read' => 'billing.payment.read', 'create' => 'billing.payment.record',
+                'with' => ['allocations'], 'writer' => [BillW\PaymentService::class, 'record']],
 
             // ---- Stocktaking -------------------------------------------------------------
             'stocktakes' => $doc(Stk\Stocktake::class, StkS\StocktakeSchema::class, 'stocktaking.stocktake', [StkW\StocktakeWorkflow::class, 'save'], with: []),

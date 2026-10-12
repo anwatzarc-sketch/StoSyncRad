@@ -31,6 +31,11 @@ final class TemplatesSeed extends Seed
         'email.notification.generic' => ['Notification email', TemplateEngine::SAFE_HTML, 'emails/notification.html'],
         'email.auth.password_reset' => ['Password reset email', TemplateEngine::SAFE_HTML, 'emails/password_reset.html'],
         'email.auth.welcome' => ['Welcome email', TemplateEngine::SAFE_HTML, 'emails/welcome.html'],
+        'email.portal.verify_email' => ['Customer portal: confirm email', TemplateEngine::SAFE_HTML, 'emails/portal_verify_email.html'],
+        'email.portal.invitation' => ['Customer portal: invitation', TemplateEngine::SAFE_HTML, 'emails/portal_invitation.html'],
+        'email.portal.registration_decided' => ['Customer portal: registration decision', TemplateEngine::SAFE_HTML, 'emails/portal_registration_decided.html'],
+        'document.quotation.print' => ['Quotation', TemplateEngine::SAFE_HTML, 'documents/quotation.html'],
+        'document.invoice.print' => ['Invoice', TemplateEngine::SAFE_HTML, 'documents/invoice.html'],
     ];
 
     public function name(): string
@@ -40,15 +45,27 @@ final class TemplatesSeed extends Seed
 
     public function version(): string
     {
-        return '2.0.0';
+        return '2.1.0';
     }
 
     public function run(array $options = []): array
     {
         $inserted = 0;
+        $refreshed = 0;
         foreach (self::TEMPLATES as $code => [$name, $engine, $file]) {
             $path = resource_path('templates/'.$file);
-            if (! is_file($path) || DB::table('templates')->where('code', $code)->exists()) {
+            if (! is_file($path)) {
+                continue;
+            }
+            $existing = DB::table('templates')->where('code', $code)->first(['id', 'body', 'version', 'is_system_default', 'updated_by']);
+            if ($existing !== null) {
+                // A shipped template nobody has edited follows the product; an edited one is left alone.
+                $body = (string) file_get_contents($path);
+                if ($existing->is_system_default && (int) $existing->version === 1 && $existing->updated_by === null && $existing->body !== $body) {
+                    DB::table('templates')->where('id', $existing->id)->update(['body' => $body, 'updated_at' => now()]);
+                    $refreshed++;
+                }
+
                 continue;
             }
             DB::table('templates')->insert([
@@ -59,6 +76,6 @@ final class TemplatesSeed extends Seed
             $inserted++;
         }
 
-        return ['inserted' => $inserted];
+        return ['inserted' => $inserted, 'refreshed' => $refreshed];
     }
 }

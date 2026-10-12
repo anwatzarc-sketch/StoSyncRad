@@ -65,6 +65,7 @@ final class SeedRunner
             VirtualLocationsSeed::class,
             QcChecklistsSeed::class,
             TemplatesSeed::class,
+            CustomerAdministratorsSeed::class,
         ];
     }
 }

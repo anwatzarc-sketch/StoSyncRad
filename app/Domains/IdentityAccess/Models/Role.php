@@ -23,6 +23,12 @@ final class Role extends BaseModel
 {
     public const SUPER_ADMIN_CODE = '__super_admin';
 
+    /** System role of Customer Portal accounts (customer.* permissions only, without managing colleagues). */
+    public const CUSTOMER_MEMBER_CODE = '__customer_member';
+
+    /** System role of a customer's portal administrators: every customer.* permission, including managing colleagues. */
+    public const CUSTOMER_ADMIN_CODE = '__customer_admin';
+
     protected $table = 'roles';
 
     protected static ?string $schema = RoleSchema::class;
