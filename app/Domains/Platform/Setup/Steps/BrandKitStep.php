@@ -18,7 +18,7 @@ use App\Support\Exceptions\ErrorCode;
 
 /**
  * Step 4 — brand kit (Chapter 03 §3.5).
- * Payload: app_name, app_short_name (≤12), tagline?, legal_footer?, support_email?, support_phone?, support_url?,
+ * Payload: app_name?, app_short_name? (≤12; default: the product name), tagline?, legal_footer?, support_email?, support_phone?, support_url?,
  *          theme{colors{…}, dark{…}, font, radius, density}, assets{kind: upload id}, contrast_override_reason?
  */
 final class BrandKitStep implements SetupStepHandler
@@ -32,13 +32,14 @@ final class BrandKitStep implements SetupStepHandler
 
     public function handle(array $payload, SetupContext $context): array
     {
-        $name = trim((string) ($payload['app_name'] ?? ''));
-        $short = trim((string) ($payload['app_short_name'] ?? ''));
-        if ($name === '' || mb_strlen($name) > 80) {
-            throw DomainException::of(ErrorCode::VALIDATION_FAILED, '`app_name` is required (max 80 characters).', ['field' => 'app_name']);
+        // The product name is fixed (config/product.php); older bundles may still carry these keys.
+        $name = trim((string) ($payload['app_name'] ?? '')) ?: (string) config('product.name');
+        $short = trim((string) ($payload['app_short_name'] ?? '')) ?: (string) config('product.short_name');
+        if (mb_strlen($name) > 80) {
+            throw DomainException::of(ErrorCode::VALIDATION_FAILED, '`app_name` must be at most 80 characters.', ['field' => 'app_name']);
         }
-        if ($short === '' || mb_strlen($short) > 12) {
-            throw DomainException::of(ErrorCode::VALIDATION_FAILED, '`app_short_name` is required (max 12 characters).', ['field' => 'app_short_name']);
+        if (mb_strlen($short) > 12) {
+            throw DomainException::of(ErrorCode::VALIDATION_FAILED, '`app_short_name` must be at most 12 characters.', ['field' => 'app_short_name']);
         }
         $theme = (array) ($payload['theme'] ?? []);
         foreach ((array) ($theme['colors'] ?? []) + (array) ($theme['dark'] ?? []) as $token => $value) {

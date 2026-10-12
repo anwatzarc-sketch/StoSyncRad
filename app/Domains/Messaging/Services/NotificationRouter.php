@@ -27,28 +27,31 @@ use Illuminate\Support\Facades\Mail;
  */
 final class NotificationRouter
 {
-    /** outbox event => [notification event, title, permission|null, warehouse payload key|'@aggregate'|null, recipient payload key|null, link] */
+    /**
+     * outbox event => [notification event, title, permission|null, warehouse payload key|'@aggregate'|null, recipient payload key|null, link]
+     * Links are web pages: records open at /r/{resource}/{id} (see routes/web/app.php).
+     */
     public const ROUTES = [
-        'fulfillment.stock_request.submitted' => ['approval_pending', 'Stock request {document_number} awaits approval', 'fulfillment.stock_request.approve', 'warehouse_id', null, '/requests/{aggregate_id}'],
-        'fulfillment.stock_request.approved' => ['issue_ready_for_picking', 'Stock request {document_number} is approved and ready to pick', 'fulfillment.stock_issue.create', 'warehouse_id', null, '/requests/{aggregate_id}'],
-        'fulfillment.stock_request.rejected' => ['approval_decided', 'Your stock request {document_number} was rejected', null, null, 'requester_id', '/requests/{aggregate_id}'],
-        'procurement.purchase_request.submitted' => ['approval_pending', 'Purchase request {document_number} awaits approval', 'procurement.purchase_request.approve', 'warehouse_id', null, '/purchase-requests/{aggregate_id}'],
-        'procurement.purchase_order.submitted' => ['approval_pending', 'Purchase order {document_number} awaits approval', 'procurement.purchase_order.approve', 'warehouse_id', null, '/purchase-orders/{aggregate_id}'],
-        'transfers.transfer.submitted' => ['approval_pending', 'Transfer {document_number} awaits approval', 'transfers.transfer.approve', 'source_warehouse_id', null, '/transfers/{aggregate_id}'],
-        'transfers.transfer.approved' => ['transfer_awaiting_dispatch', 'Transfer {document_number} is approved — pick and dispatch', 'transfers.transfer.dispatch', 'source_warehouse_id', null, '/transfers/{aggregate_id}'],
-        'transfers.transfer.dispatched' => ['transfer_awaiting_receipt', 'Transfer {document_number} is on its way to you', 'transfers.transfer.receive', 'destination_warehouse_id', null, '/transfers/{aggregate_id}'],
-        'transfers.discrepancy.reported' => ['transfer_discrepancy', 'Discrepancy reported on transfer {document_number}', 'transfers.discrepancy.resolve', null, null, '/transfers/{aggregate_id}'],
-        'receiving.goods_receipt.rejections_recorded' => ['receipt_requires_inspection', 'Receipt {document_number} has rejected quantities', 'receiving.qc.inspect', null, null, '/receipts/{aggregate_id}'],
-        'stocktaking.adjustment.submitted' => ['adjustment_requires_approval', 'Adjustment {document_number} awaits approval', 'stocktaking.adjustment.approve', 'warehouse_id', null, '/adjustments/{aggregate_id}'],
-        'stocktaking.stocktake.scheduled' => ['stocktake_assigned', 'Stocktake {document_number} is scheduled', 'stocktaking.stocktake.count', null, null, '/stocktakes/{aggregate_id}'],
-        'inventory.movement.reversal_requested' => ['approval_pending', 'Reversal of {movement_number} awaits approval', 'inventory.movement.reverse', null, null, '/movements'],
-        'inventory.lot.expiry_warning' => ['expiry_warning', 'Lot {lot_number} expires on {expiry_date}', 'inventory.lot.read', null, null, '/lots/{aggregate_id}'],
+        'fulfillment.stock_request.submitted' => ['approval_pending', 'Stock request {document_number} awaits approval', 'fulfillment.stock_request.approve', 'warehouse_id', null, '/r/stock-requests/{aggregate_id}'],
+        'fulfillment.stock_request.approved' => ['issue_ready_for_picking', 'Stock request {document_number} is approved and ready to pick', 'fulfillment.stock_issue.create', 'warehouse_id', null, '/r/stock-requests/{aggregate_id}'],
+        'fulfillment.stock_request.rejected' => ['approval_decided', 'Your stock request {document_number} was rejected', null, null, 'requester_id', '/r/stock-requests/{aggregate_id}'],
+        'procurement.purchase_request.submitted' => ['approval_pending', 'Purchase request {document_number} awaits approval', 'procurement.purchase_request.approve', 'warehouse_id', null, '/r/purchase-requests/{aggregate_id}'],
+        'procurement.purchase_order.submitted' => ['approval_pending', 'Purchase order {document_number} awaits approval', 'procurement.purchase_order.approve', 'warehouse_id', null, '/r/purchase-orders/{aggregate_id}'],
+        'transfers.transfer.submitted' => ['approval_pending', 'Transfer {document_number} awaits approval', 'transfers.transfer.approve', 'source_warehouse_id', null, '/r/transfers/{aggregate_id}'],
+        'transfers.transfer.approved' => ['transfer_awaiting_dispatch', 'Transfer {document_number} is approved — pick and dispatch', 'transfers.transfer.dispatch', 'source_warehouse_id', null, '/r/transfers/{aggregate_id}'],
+        'transfers.transfer.dispatched' => ['transfer_awaiting_receipt', 'Transfer {document_number} is on its way to you', 'transfers.transfer.receive', 'destination_warehouse_id', null, '/r/transfers/{aggregate_id}'],
+        'transfers.discrepancy.reported' => ['transfer_discrepancy', 'Discrepancy reported on transfer {document_number}', 'transfers.discrepancy.resolve', null, null, '/r/transfers/{aggregate_id}'],
+        'receiving.goods_receipt.rejections_recorded' => ['receipt_requires_inspection', 'Receipt {document_number} has rejected quantities', 'receiving.qc.inspect', null, null, '/r/goods-receipts/{aggregate_id}'],
+        'stocktaking.adjustment.submitted' => ['adjustment_requires_approval', 'Adjustment {document_number} awaits approval', 'stocktaking.adjustment.approve', 'warehouse_id', null, '/r/stock-adjustments/{aggregate_id}'],
+        'stocktaking.stocktake.scheduled' => ['stocktake_assigned', 'Stocktake {document_number} is scheduled', 'stocktaking.stocktake.count', null, null, '/r/stocktakes/{aggregate_id}'],
+        'inventory.movement.reversal_requested' => ['approval_pending', 'Reversal of {movement_number} awaits approval', 'inventory.movement.reverse', null, null, '/r/movements'],
+        'inventory.lot.expiry_warning' => ['expiry_warning', 'Lot {lot_number} expires on {expiry_date}', 'inventory.lot.read', null, null, '/r/lots/{aggregate_id}'],
         'inventory.lot.expired' => ['expiry_warning', 'Expired stock was moved to the expired condition', 'inventory.stock.read', '@aggregate', null, '/stock'],
-        'inventory.recall.initiated' => ['expiry_warning', 'Recall {document_number}: affected lots are locked', 'inventory.stock.read', null, null, '/recalls/{aggregate_id}'],
-        'inventory.reconciliation.findings' => ['reconciliation_failed', 'Stock reconciliation found {findings} difference(s)', 'inventory.reconciliation.read', null, null, '/admin/reconciliation'],
-        'reporting.report.completed' => ['report_run_completed', 'Your export "{report_name}" is ready', null, null, 'runner_account_id', '/reports/runs/{aggregate_id}'],
-        'reporting.report.failed' => ['report_run_failed', 'Your export "{report_name}" failed', null, null, 'runner_account_id', '/reports/runs/{aggregate_id}'],
-        'exchange.import.completed' => ['import_completed', 'Import {filename} finished: {imported} imported, {invalid} invalid', null, null, 'created_by', '/imports/{aggregate_id}'],
+        'inventory.recall.initiated' => ['expiry_warning', 'Recall {document_number}: affected lots are locked', 'inventory.stock.read', null, null, '/r/recalls/{aggregate_id}'],
+        'inventory.reconciliation.findings' => ['reconciliation_failed', 'Stock reconciliation found {findings} difference(s)', 'inventory.reconciliation.read', null, null, '/r/reconciliation-runs/{aggregate_id}'],
+        'reporting.report.completed' => ['report_run_completed', 'Your export "{report_name}" is ready', null, null, 'runner_account_id', '/reports/runs?run={aggregate_id}'],
+        'reporting.report.failed' => ['report_run_failed', 'Your export "{report_name}" failed', null, null, 'runner_account_id', '/reports/runs?run={aggregate_id}'],
+        'exchange.import.completed' => ['import_completed', 'Import {filename} finished: {imported} imported, {invalid} invalid', null, null, 'created_by', '/imports?batch={aggregate_id}'],
     ];
 
     public function __construct(private readonly Access $access, private readonly PlatformConfig $config, private readonly BrandResolver $brand) {}

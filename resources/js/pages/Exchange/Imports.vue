@@ -12,6 +12,7 @@ import type { Column } from '@/components/ui/table';
 /**
  * CSV / XLSX imports (Chapter 11 §11.9): upload → validated preview with per-row errors →
  * confirm (processed in the background) → error file. Each import type has its own permission.
+ * `?batch=<id>` (the "import finished" notification) opens that import's result.
  */
 interface ImportTypeInfo { type: string; label: string; allowed: boolean; columns?: string[]; required?: string[] }
 
@@ -36,7 +37,16 @@ onMounted(async () => {
     try {
         types.value = (await get('/api/v1/imports/types')).data;
         type.value = allowedTypes.value[0]?.type ?? '';
+        const linked = new URLSearchParams(window.location.search).get('batch');
+        if (linked) {
+            batch.value = { id: linked };
+            await refresh();
+            if (['confirmed', 'processing', 'validating', 'uploaded'].includes(batch.value?.status)) {
+                poll = setInterval(() => void refresh(), 3000);
+            }
+        }
     } catch (e) {
+        batch.value = null;
         error.value = e;
     }
 });

@@ -24,16 +24,21 @@
     --color-info: var(--ssr-info);
     --color-nav: var(--ssr-nav-background);
     --color-nav-ink: var(--ssr-nav-text);
+    /* Product wordmark (fixed for every customer, served by theme.css). */
+    --color-product-ink: var(--product-ink);
+    --color-product-accent: var(--product-accent);
+    --color-product-teal: var(--product-teal);
     --radius-brand: var(--ssr-radius);
     --font-sans: var(--ssr-font);
 }
 
 /* Fallbacks with zero specificity: the brand kit's theme.css always wins. */
 :where(:root) {
-    --ssr-brand: #0f2a47; --ssr-brand-contrast: #ffffff; --ssr-accent: #0e7c7e; --ssr-accent-contrast: #ffffff;
+    --ssr-brand: #04326d; --ssr-brand-contrast: #ffffff; --ssr-accent: #087a7b; --ssr-accent-contrast: #ffffff;
     --ssr-surface: #ffffff; --ssr-surface-muted: #f3f6f9; --ssr-text: #111827; --ssr-text-muted: #4b5563;
     --ssr-border: #d9dee5; --ssr-focus: #2563eb; --ssr-success: #15803d; --ssr-warning: #b45309;
-    --ssr-danger: #b91c1c; --ssr-info: #1d4ed8; --ssr-nav-background: #0f2a47; --ssr-nav-text: #e5edf5;
+    --ssr-danger: #b91c1c; --ssr-info: #1d4ed8; --ssr-nav-background: #04326d; --ssr-nav-text: #e8f1fb;
+    --product-ink: #04326d; --product-accent: #087a7b; --product-teal: #0aaaaa;
     --ssr-radius: 0.5rem; --ssr-density: 1;
     --ssr-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
 }

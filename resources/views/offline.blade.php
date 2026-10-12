@@ -6,22 +6,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Offline · {{ $brand['app_name'] }}</title>
     <link rel="stylesheet" href="/brand/theme.css?v={{ urlencode((string) $brand['checksum']) }}">
+    <link rel="icon" href="{{ $brand['product']['assets']['favicon_ico'] }}" sizes="48x48">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ $brand['product']['assets']['favicon_32'] }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ $brand['product']['assets']['favicon_16'] }}">
+    <link rel="apple-touch-icon" href="{{ $brand['product']['assets']['apple_touch'] }}">
     <style>
         body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: var(--ssr-font, system-ui, sans-serif);
                background: var(--ssr-surface, #fff); color: var(--ssr-text, #111); }
         main { max-width: 28rem; padding: 2rem 1.25rem; text-align: center; }
         h1 { font-size: 1.375rem; margin: 0 0 .75rem; }
         p { color: var(--ssr-text-muted, #555); line-height: 1.5; }
+        img { width: 72px; height: 72px; margin-bottom: 1rem; }
+        small { display: block; margin-top: 2rem; color: var(--ssr-text-muted, #555); }
         a { display: inline-block; margin-top: 1.25rem; padding: .75rem 1.25rem; border-radius: var(--ssr-radius, .5rem);
             background: var(--ssr-brand, #0f2a47); color: var(--ssr-brand-contrast, #fff); text-decoration: none; min-height: 44px; box-sizing: border-box; }
     </style>
 </head>
 <body>
 <main>
+    <img src="{{ $brand['product']['assets']['logo_mark'] }}" alt="{{ $brand['product']['name'] }}">
     <h1>You are offline</h1>
     <p>{{ $brand['app_name'] }} needs a connection to show stock, post documents or run reports. Nothing was saved while offline,
        and nothing will be sent later — when you are back online, check the document you were working on and continue.</p>
     <a href="/">Try again</a>
+    <small>{{ $brand['product']['name'] }} · by {{ $brand['product']['vendor'] }}</small>
 </main>
 </body>
 </html>

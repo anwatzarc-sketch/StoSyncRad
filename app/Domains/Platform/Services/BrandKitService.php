@@ -78,7 +78,8 @@ final class BrandKitService
 
         return DB::transaction(function () use ($data, $theme, $actor, $failures) {
             $kit = new BrandKit([
-                'app_name' => $data['app_name'], 'app_short_name' => $data['app_short_name'], 'tagline' => $data['tagline'] ?? null,
+                'app_name' => ($data['app_name'] ?? null) ?: config('product.name'), 'app_short_name' => ($data['app_short_name'] ?? null) ?: config('product.short_name'),
+                'tagline' => $data['tagline'] ?? null,
                 'legal_footer' => $data['legal_footer'] ?? null, 'support_email' => $data['support_email'] ?? null,
                 'support_phone' => $data['support_phone'] ?? null, 'support_url' => $data['support_url'] ?? null,
                 'theme' => $theme, 'locale_defaults' => $data['locale_defaults'] ?? null,
@@ -169,30 +170,32 @@ final class BrandKitService
             ? "@font-face { font-family: \"BrandFont\"; src: url(\"{$profile['assets']['font_file']}\") format(\"woff2\"); font-display: swap; }\n"
             : '';
         $dark = array_replace($theme['colors'], $theme['dark'] ?? []);
+        // Product wordmark colours (fixed for every customer); on dark surfaces the navy part turns light.
+        $p = ($profile['product'] ?? BrandResolver::product())['colors'];
+        $product = "  --product-ink: {$p['navy']};\n  --product-accent: {$p['teal_ui']};\n  --product-teal: {$p['teal']};";
+        $productDark = "  --product-ink: #e8f1fb;\n  --product-accent: {$p['teal']};";
 
-        return $fontFace.":root {\n".$vars($theme['colors'])."\n  --ssr-radius: {$radius};\n  --ssr-density: {$density};\n  --ssr-font: {$font};\n}\n"
-            ."@media (prefers-color-scheme: dark) {\n  :root[data-theme-mode=\"auto\"] {\n".$vars($dark)."\n  }\n}\n"
-            .":root[data-theme-mode=\"dark\"] {\n".$vars($dark)."\n}\n";
+        return $fontFace.":root {\n".$vars($theme['colors'])."\n{$product}\n  --ssr-radius: {$radius};\n  --ssr-density: {$density};\n  --ssr-font: {$font};\n}\n"
+            ."@media (prefers-color-scheme: dark) {\n  :root[data-theme-mode=\"auto\"] {\n".$vars($dark)."\n{$productDark}\n  }\n}\n"
+            .":root[data-theme-mode=\"dark\"] {\n".$vars($dark)."\n{$productDark}\n}\n";
     }
 
     /** @param  array<string, mixed>  $profile @return array<string, mixed> */
     public function manifest(array $profile): array
     {
-        $icons = [];
-        foreach (self::ICON_SIZES as $size) {
-            if (isset($profile['assets']["icon_{$size}"])) {
-                $icons[] = ['src' => $profile['assets']["icon_{$size}"], 'sizes' => "{$size}x{$size}", 'type' => 'image/png', 'purpose' => 'any'];
-            }
-        }
-        if (isset($profile['assets']['icon_maskable_512'])) {
-            $icons[] = ['src' => $profile['assets']['icon_maskable_512'], 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'];
-        }
+        // The installed app is the product: its icons and description never change per customer.
+        $product = $profile['product'] ?? BrandResolver::product();
+        $icons = [
+            ['src' => $product['assets']['icon_192'], 'sizes' => '192x192', 'type' => 'image/png', 'purpose' => 'any'],
+            ['src' => $product['assets']['icon_512'], 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any'],
+            ['src' => $product['assets']['icon_maskable_512'], 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
+        ];
 
         return [
             'id' => '/',
-            'name' => $profile['app_name'],
-            'short_name' => $profile['app_short_name'],
-            'description' => $profile['tagline'] ?? $profile['app_name'],
+            'name' => $product['name'],
+            'short_name' => $product['short_name'],
+            'description' => trim($product['name'].' — '.$product['tagline'].(empty($profile['company_name']) ? '' : ' · '.$profile['company_name'])),
             'start_url' => '/',
             'scope' => '/',
             'display' => 'standalone',

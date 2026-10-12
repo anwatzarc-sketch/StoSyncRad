@@ -18,8 +18,8 @@ final class BrandKitSchema extends TableSchema
     protected static function define(): array
     {
         return [
-            'app_name' => Property::string(80)->required()->trim()->virtual()->label('Application name'),
-            'app_short_name' => Property::string(30)->required()->trim()->virtual()->label('Short name'),
+            'app_name' => Property::string(80)->nullable()->trim()->virtual()->label('Application name', 'Fixed to the product name; kept for older bundles.'),
+            'app_short_name' => Property::string(30)->nullable()->trim()->virtual()->label('Short name', 'Fixed to the product name; kept for older bundles.'),
             'tagline' => Property::string(190)->nullable()->trim()->virtual()->label('Tagline'),
             'legal_footer' => Property::text(1000)->nullable()->trim()->virtual()->label('Legal footer'),
             'support_email' => Property::email()->nullable()->virtual()->label('Support email'),

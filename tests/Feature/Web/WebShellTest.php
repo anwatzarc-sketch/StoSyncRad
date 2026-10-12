@@ -41,6 +41,40 @@ final class WebShellTest extends TestCase
         $this->get('/manifest.webmanifest')->assertOk()->assertJsonStructure(['name', 'short_name', 'start_url', 'icons']);
     }
 
+    public function test_the_product_identity_is_fixed_whatever_the_customer_brand_kit_says(): void
+    {
+        DB::table('company_profile')->delete();
+        DB::table('company_profile')->insert(['id' => (string) Str::uuid7(), 'legal_name' => 'Acme Trading plc', 'trading_name' => 'Acme Pharma',
+            'base_currency' => 'ETB', 'created_at' => now(), 'updated_at' => now()]);
+        app(\App\Domains\Platform\Services\BrandKitService::class)->createAndActivate(['app_name' => 'Acme Stock', 'app_short_name' => 'Acme',
+            'legal_footer' => 'Acme Pharma, Addis Ababa', 'theme' => ['colors' => ['brand' => '#7a1f1f', 'nav_background' => '#7a1f1f']]], null);
+        app(\App\Domains\Platform\Services\BrandResolver::class)->forget();
+        $product = config('product');
+
+        $this->get('/login')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('brand.app_name', $product['name'])
+            ->where('brand.product.name', $product['name'])
+            ->where('brand.product.vendor', $product['vendor'])
+            ->where('brand.company_name', 'Acme Pharma')
+            ->where('brand.theme.colors.brand', '#7a1f1f'))
+            ->assertSee('rel="icon"', false)
+            ->assertSee($product['assets']['favicon_32'], false);
+
+        $manifest = $this->get('/manifest.webmanifest')->assertOk()->json();
+        $this->assertSame([$product['name'], $product['short_name']], [$manifest['name'], $manifest['short_name']]);
+        $this->assertStringContainsString('Acme Pharma', $manifest['description']);
+        foreach ($manifest['icons'] as $icon) {
+            $this->assertStringStartsWith('/product/', $icon['src']);
+            $this->assertFileExists(public_path(strtok($icon['src'], '?')));
+        }
+        $this->assertFileExists(public_path('favicon.ico'));
+        $this->assertGreaterThan(0, filesize(public_path('favicon.ico')));
+
+        $css = (string) $this->get('/brand/theme.css')->assertOk()->getContent();
+        $this->assertStringContainsString('--ssr-brand: #7a1f1f;', $css, 'the customer keeps its colours');
+        $this->assertStringContainsString("--product-ink: {$product['colors']['navy']};", $css, 'the wordmark keeps the product colours');
+    }
+
     public function test_navigation_and_resource_actions_follow_the_persons_permissions(): void
     {
         $clerk = $this->actorWith(['transfers.transfer.read', 'transfers.transfer.submit']);
@@ -57,5 +91,16 @@ final class WebShellTest extends TestCase
 
         $this->actingAs($clerk, 'web')->get('/r/no-such-resource')->assertNotFound();
         $this->actingAs($clerk, 'web')->get('/r/roles')->assertForbidden();
+    }
+
+    public function test_every_notification_link_opens_an_existing_page(): void
+    {
+        $admin = $this->superAdmin()->refresh();   // fully loaded, as after a real sign-in
+        foreach (\App\Domains\Messaging\Services\NotificationRouter::ROUTES as $event => $route) {
+            $link = str_replace('{aggregate_id}', (string) Str::uuid7(), $route[5]);
+            $this->assertStringNotContainsString('{', $link, "$event: unresolved placeholder in $link");
+            $response = $this->actingAs($admin, 'web')->get($link);
+            $this->assertSame(200, $response->getStatusCode(), "$event links to $link, which answers {$response->getStatusCode()} ".($response->exception?->getMessage() ?? ""));
+        }
     }
 }

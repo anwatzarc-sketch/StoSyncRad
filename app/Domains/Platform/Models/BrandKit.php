@@ -54,13 +54,13 @@ final class BrandKit extends BaseModel
     {
         return [
             'colors' => [
-                'brand' => '#0f2a47', 'brand_contrast' => '#ffffff',
-                'accent' => '#0e7c7e', 'accent_contrast' => '#ffffff',
+                'brand' => '#04326d', 'brand_contrast' => '#ffffff',
+                'accent' => '#087a7b', 'accent_contrast' => '#ffffff',
                 'surface' => '#ffffff', 'surface_muted' => '#f3f6f9',
                 'text' => '#111827', 'text_muted' => '#4b5563',
                 'border' => '#d9dee5', 'focus' => '#2563eb',
                 'success' => '#15803d', 'warning' => '#b45309', 'danger' => '#b91c1c', 'info' => '#1d4ed8',
-                'nav_background' => '#0f2a47', 'nav_text' => '#e5edf5',
+                'nav_background' => '#04326d', 'nav_text' => '#e8f1fb',
             ],
             'dark' => [
                 'surface' => '#0b1220', 'surface_muted' => '#111a2b', 'text' => '#e5e7eb', 'text_muted' => '#9ca3af',

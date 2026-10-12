@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
 import UiButton from '@/components/ui/UiButton.vue';
@@ -9,8 +9,12 @@ import { enumLabel, loadEnums } from '@/lib/meta';
 import { formatDateTime } from '@/lib/format';
 import { useShared } from '@/composables/useShared';
 
-/** Report runs and exports: status, row counts, signed one-time download links, cancel. */
+/**
+ * Report runs and exports: status, row counts, signed one-time download links, cancel.
+ * `?run=<id>` (the "export ready / failed" notification) highlights that run.
+ */
 const { can } = useShared();
+const focused = new URLSearchParams(window.location.search).get('run');
 const runs = ref<Record<string, any>[]>([]);
 const all = ref(false);
 const error = ref<unknown>(null);
@@ -41,6 +45,10 @@ async function cancel(id: string) {
 onMounted(async () => {
     await loadEnums().catch(() => undefined);
     await load();
+    if (focused) {
+        await nextTick();
+        document.getElementById(`run-${focused}`)?.scrollIntoView({ block: 'center' });
+    }
     timer = setInterval(() => {
         if (runs.value.some((r) => ['queued', 'running'].includes(r.status))) {
             void load();
@@ -63,7 +71,9 @@ watch(all, () => void load());
     <div class="card">
         <p v-if="runs.length === 0" class="py-8 text-center text-sm text-ink-muted">No runs yet.</p>
         <ul class="divide-y divide-line">
-            <li v-for="r in runs" :key="r.id" class="flex flex-wrap items-center gap-3 py-3">
+            <li v-for="r in runs" :id="`run-${r.id}`" :key="r.id"
+                :class="['flex flex-wrap items-center gap-3 py-3', r.id === focused ? '-mx-3 rounded-brand bg-accent/10 px-3 ring-2 ring-accent' : '']"
+                :aria-current="r.id === focused ? 'true' : undefined">
                 <div class="min-w-0 flex-1">
                     <p class="font-medium">{{ r.dataset_code }} · {{ enumLabel('report_output_format', r.output_format) }}</p>
                     <p class="text-sm text-ink-muted">

@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import EnumSelect from './ui/EnumSelect.vue';
+import ProductWordmark from './ProductWordmark.vue';
+import { useShared } from '@/composables/useShared';
 import type { BrandForm } from '@/types/shared';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/toast';
 
 /**
- * Brand kit form + live preview (Chapter 03 §3.5, Chapter 12 §12.5): names, colour tokens with a
- * WCAG AA contrast check, font/radius/density, and asset uploads. Used by the setup wizard and by
- * Administration; `uploadUrl` differs (setup session vs. admin permission).
+ * Brand kit form + live preview (Chapter 03 §3.5, Chapter 12 §12.5): the customer's tagline, support
+ * contacts, legal footer, colour tokens with a WCAG AA contrast check, font/radius/density, and the
+ * sign-in background / letterhead uploads. The product name, logo and icons are fixed (shown, not
+ * edited). Used by the setup wizard and by Administration; `uploadUrl` differs.
  */
 
 const props = defineProps<{ modelValue: BrandForm; uploadUrl: string }>();
@@ -20,9 +23,11 @@ const TOKENS: Array<[string, string]> = [
     ['success', 'Success'], ['warning', 'Warning'], ['danger', 'Danger'], ['info', 'Info'], ['nav_background', 'Navigation'], ['nav_text', 'Navigation text'],
 ];
 const PAIRS: Array<[string, string]> = [['brand_contrast', 'brand'], ['accent_contrast', 'accent'], ['text', 'surface'], ['text_muted', 'surface'], ['nav_text', 'nav_background']];
-const ASSETS: Array<[string, string]> = [['logo_light', 'Logo (light backgrounds)'], ['logo_dark', 'Logo (dark backgrounds)'], ['logo_mark', 'Mark / small logo'],
-    ['favicon_source', 'Favicon'], ['pwa_icon_source', 'App icon (square, ≥ 512 px)'], ['login_background', 'Sign-in background'],
+// Logo, favicon and app icon belong to the product and are not uploaded per customer.
+const ASSETS: Array<[string, string]> = [['login_background', 'Sign-in background'],
     ['letterhead_header', 'Document letterhead header'], ['letterhead_footer', 'Document letterhead footer']];
+
+const { brand } = useShared();
 
 const uploading = reactive<Record<string, boolean>>({});
 const previews = reactive<Record<string, string>>({});
@@ -81,13 +86,12 @@ async function upload(kind: string, event: Event) {
     <div class="grid gap-6 xl:grid-cols-[1fr_22rem]">
         <div class="space-y-6">
             <section class="grid gap-4 sm:grid-cols-2">
-                <div>
-                    <label for="b-name" class="label">Application name <span class="text-danger">*</span></label>
-                    <input id="b-name" class="input" maxlength="80" :value="form.app_name" @input="set('app_name', ($event.target as HTMLInputElement).value)">
-                </div>
-                <div>
-                    <label for="b-short" class="label">Short name (≤ 12) <span class="text-danger">*</span></label>
-                    <input id="b-short" class="input" maxlength="12" :value="form.app_short_name" @input="set('app_short_name', ($event.target as HTMLInputElement).value)">
+                <div class="flex flex-wrap items-center gap-4 rounded-brand border border-line bg-surface-muted p-4 sm:col-span-2">
+                    <img :src="brand.product.assets.logo" :alt="brand.product.name" class="h-14 w-auto object-contain">
+                    <p class="min-w-48 flex-1 text-sm text-ink-muted">
+                        The product name, logo, favicon and app icon are the same for every company and cannot be changed here.
+                        This brand kit sets your company's tagline, support contacts, legal footer, colours and document letterhead.
+                    </p>
                 </div>
                 <div class="sm:col-span-2">
                     <label for="b-tagline" class="label">Tagline</label>
@@ -165,8 +169,7 @@ async function upload(kind: string, event: Event) {
             <p class="label">Preview</p>
             <div class="overflow-hidden rounded-xl border border-line shadow" :style="previewStyle">
                 <div class="flex items-center gap-2 px-3 py-3" style="background: var(--p-nav-background); color: var(--p-nav-text)">
-                    <img v-if="previews.logo_mark" :src="previews.logo_mark" alt="" class="h-6 w-6 object-contain">
-                    <strong>{{ form.app_name || 'Application' }}</strong>
+                    <ProductWordmark on-dark size="sm" />
                 </div>
                 <div class="space-y-3 p-4" style="background: var(--p-surface); color: var(--p-text)">
                     <p class="text-lg font-bold">{{ form.tagline || 'Stock at a glance' }}</p>

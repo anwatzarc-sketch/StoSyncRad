@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>{{ $title }}</title>
-@php($primary = data_get($brand, 'theme.colors.primary', '#1f4b99'))
+@php($primary = data_get($brand, 'theme.colors.brand', '#04326d'))
 <style>
     @page { margin: 72px 28px 48px 28px; }
     body { font-family: "DejaVu Sans", sans-serif; font-size: 8.5px; color: #1d2433; }
@@ -24,7 +24,7 @@
 </head>
 <body>
 <header>
-    <div class="brand">{{ $brand['app_name'] ?? 'Stock Management' }}</div>
+    <div class="brand">{{ $brand['company_name'] ?? $brand['app_name'] }}</div>
     <div class="title">{{ $title }}</div>
     <div class="right">Run {{ $meta['run_at'] ?? '' }}<br>{{ $meta['runner'] ?? '' }}</div>
 </header>
@@ -33,6 +33,7 @@
     &nbsp;·&nbsp; {{ $meta['report_name'] ?? $title }} (v{{ $meta['definition_version'] ?? '–' }})
     &nbsp;·&nbsp; {{ number_format($totalRows) }} row(s)
     @if(!empty($brand['legal_footer'])) &nbsp;·&nbsp; {{ $brand['legal_footer'] }} @endif
+    &nbsp;·&nbsp; {{ data_get($brand, 'product.name') }} by {{ data_get($brand, 'product.vendor') }}
 </footer>
 <main>
     @if(!empty($meta['filters_summary']))

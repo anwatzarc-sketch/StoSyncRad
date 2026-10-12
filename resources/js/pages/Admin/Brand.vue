@@ -61,7 +61,7 @@ async function activate() {
         <h2 class="mb-2 font-semibold">Versions</h2>
         <ul class="divide-y divide-line text-sm">
             <li v-for="k in kits" :key="k.id" class="flex justify-between py-2">
-                <span>v{{ k.version }} · {{ k.app_name }} <strong v-if="k.is_active" class="text-success">(active)</strong></span>
+                <span>Version {{ k.version }} <strong v-if="k.is_active" class="text-success">(active)</strong></span>
                 <span class="text-ink-muted">{{ formatDateTime(k.activated_at ?? k.created_at) }}</span>
             </li>
         </ul>

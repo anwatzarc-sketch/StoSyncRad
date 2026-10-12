@@ -9,15 +9,14 @@
     <meta name="application-name" content="{{ $brand['app_short_name'] }}">
     <meta name="apple-mobile-web-app-title" content="{{ $brand['app_short_name'] }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title inertia>{{ $brand['app_name'] }}</title>
+    <meta name="description" content="{{ $brand['product']['name'] }} — {{ $brand['product']['tagline'] }}">
+    <title inertia>{{ $brand['company_name'] ? $brand['app_name'].' · '.$brand['company_name'] : $brand['app_name'] }}</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/brand/theme.css?v={{ urlencode((string) $brand['checksum']) }}">
-    @isset($brand['assets']['favicon_source'])
-        <link rel="icon" href="{{ $brand['assets']['favicon_source'] }}">
-    @endisset
-    @isset($brand['assets']['icon_180'])
-        <link rel="apple-touch-icon" href="{{ $brand['assets']['icon_180'] }}">
-    @endisset
+    <link rel="icon" href="{{ $brand['product']['assets']['favicon_ico'] }}" sizes="48x48">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ $brand['product']['assets']['favicon_32'] }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ $brand['product']['assets']['favicon_16'] }}">
+    <link rel="apple-touch-icon" href="{{ $brand['product']['assets']['apple_touch'] }}">
     @vite(['resources/css/app.css', 'resources/js/app.ts'])
     @inertiaHead
 </head>

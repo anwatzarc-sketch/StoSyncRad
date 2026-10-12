@@ -8,10 +8,27 @@ export interface BrandTheme {
     density: string;
 }
 
+/** The product identity — identical for every customer (config/product.php). */
+export interface Product {
+    name: string;
+    short_name: string;
+    /** Two-tone wordmark: [primary part, accent part]. */
+    wordmark: string[];
+    tagline: string | null;
+    vendor: string | null;
+    vendor_url: string | null;
+    colors: Record<string, string>;
+    assets: Record<string, string>;
+}
+
 export interface Brand {
     id: string | null;
+    /** Always the product name. */
     app_name: string;
     app_short_name: string;
+    product: Product;
+    /** The customer using the product (company profile trading name). */
+    company_name: string | null;
     tagline: string | null;
     legal_footer: string | null;
     support_email: string | null;

@@ -4,6 +4,8 @@ import { Link, usePage } from '@inertiajs/vue3';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import ToastHost from '@/components/ui/ToastHost.vue';
 import StepUpDialog from '@/components/StepUpDialog.vue';
+import ProductFooter from '@/components/ProductFooter.vue';
+import ProductWordmark from '@/components/ProductWordmark.vue';
 import { useShared } from '@/composables/useShared';
 import { get, post } from '@/lib/api';
 import { applyUpdate, pwaState } from '@/lib/pwa';
@@ -11,8 +13,9 @@ import { notify } from '@/lib/toast';
 
 /**
  * App shell (Chapter 12 §12.4). Desktop: collapsible sidebar with the server-filtered sections.
- * Mobile: top bar + bottom navigation (Overview, Stock, Work, Reports, More). The brand comes from
- * the shared `brand` prop and theme tokens — nothing here is client-specific.
+ * Mobile: top bar + bottom navigation (Overview, Stock, Work, Reports, More). The product identity
+ * (wordmark, footer) and the customer (company name, theme) come from the shared `brand` prop.
+ * Nothing here is customer-specific.
  */
 const { brand, auth, nav, props } = useShared();
 const page = usePage();
@@ -72,8 +75,7 @@ function update() {
             aria-label="Main navigation"
         >
             <div class="flex h-16 items-center gap-3 px-4">
-                <img v-if="brand.assets.logo_mark || brand.assets.logo_dark" :src="brand.assets.logo_mark || brand.assets.logo_dark" alt="" class="h-8 w-8 object-contain">
-                <span class="truncate text-lg font-bold">{{ brand.app_name }}</span>
+                <Link href="/" class="min-w-0" :aria-label="`${brand.product.name} home`"><ProductWordmark on-dark show-company /></Link>
                 <button type="button" class="ml-auto rounded p-2 lg:hidden" aria-label="Close menu" @click="drawer = false"><AppIcon name="x" /></button>
             </div>
             <nav class="flex-1 overflow-y-auto px-2 pb-6">
@@ -102,7 +104,7 @@ function update() {
                     </ul>
                 </div>
             </nav>
-            <p v-if="brand.legal_footer" class="px-4 pb-4 text-xs opacity-60">{{ brand.legal_footer }}</p>
+            <p class="px-4 pb-4 text-[11px] opacity-60">{{ brand.product.name }}<template v-if="brand.product.vendor"> · by {{ brand.product.vendor }}</template></p>
         </aside>
         <div v-if="drawer" class="fixed inset-0 z-30 bg-black/40 lg:hidden" aria-hidden="true" @click="drawer = false" />
 
@@ -110,7 +112,7 @@ function update() {
             <!-- Top bar -->
             <header class="sticky top-0 z-20 flex h-16 items-center gap-2 border-b border-line bg-surface px-3 md:px-6">
                 <button type="button" class="btn btn-ghost px-2 lg:hidden" aria-label="Open menu" @click="drawer = true"><AppIcon name="menu" /></button>
-                <span class="truncate font-semibold lg:hidden">{{ brand.app_short_name }}</span>
+                <Link href="/" class="min-w-0 lg:hidden" :aria-label="`${brand.product.name} home`"><ProductWordmark size="sm" /></Link>
                 <span v-if="!pwaState.online" class="ml-2 inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-1 text-xs font-semibold text-warning">
                     <AppIcon name="wifi-off" :size="14" /> Offline
                 </span>
@@ -145,6 +147,7 @@ function update() {
 
             <main id="main" class="mx-auto max-w-7xl px-4 pb-28 pt-5 md:px-6 lg:pb-10">
                 <slot />
+                <ProductFooter class="mt-12 border-t border-line pt-4" />
             </main>
         </div>
 

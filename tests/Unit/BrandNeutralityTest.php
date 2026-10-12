@@ -10,9 +10,9 @@ use RecursiveIteratorIterator;
 
 /**
  * CI gate (Chapter 03 §3.5 "No hard-coded brand strings"): user-facing sources — Vue pages and
- * components, Blade views, document/e-mail templates, translations — never name the product; they
- * read the active brand kit. Technical identifiers (DB roles, bundle format, `platform.codename`) live
- * in PHP/config and are out of scope.
+ * components, Blade views, document/e-mail templates, translations — never write the product name,
+ * the vendor or the codename; they read `brand.product` (config/product.php, the single source) and
+ * the customer's brand kit. Technical identifiers (DB roles, bundle format) live in PHP/config.
  */
 final class BrandNeutralityTest extends TestCase
 {
@@ -23,6 +23,8 @@ final class BrandNeutralityTest extends TestCase
     public function test_user_facing_sources_do_not_hard_code_the_product_name(): void
     {
         $root = dirname(__DIR__, 2);
+        $product = require "$root/config/product.php";
+        $needles = array_filter(['stosyncrad', $product['name'], $product['vendor']]);
         $offenders = [];
         foreach (self::SCANNED as $dir) {
             if (! is_dir("$root/$dir")) {
@@ -33,12 +35,15 @@ final class BrandNeutralityTest extends TestCase
                 if (in_array($relative, self::IGNORED, true) || ! preg_match('/\.(vue|ts|php|html|json|css)$/', $relative)) {
                     continue;
                 }
-                if (stripos((string) file_get_contents($file->getPathname()), 'stosyncrad') !== false) {
-                    $offenders[] = $relative;
+                $contents = (string) file_get_contents($file->getPathname());
+                foreach ($needles as $needle) {
+                    if (stripos($contents, (string) $needle) !== false) {
+                        $offenders[] = "$relative ($needle)";
+                    }
                 }
             }
         }
 
-        $this->assertSame([], $offenders, 'Use the brand kit (brand.app_name …) instead of the product name in: '.implode(', ', $offenders));
+        $this->assertSame([], $offenders, 'Use brand.product / the brand kit instead of literal names in: '.implode(', ', $offenders));
     }
 }
