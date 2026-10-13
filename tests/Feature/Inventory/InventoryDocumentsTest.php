@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Inventory;
 
+use App\Domains\Catalog\Enums\QcPolicy;
 use App\Domains\Catalog\Enums\TrackingMode;
 use App\Domains\Inventory\Documents\ConditionChangeWorkflow;
 use App\Domains\Inventory\Documents\OpeningBalanceWorkflow;
@@ -14,18 +15,18 @@ use App\Domains\Inventory\Enums\LotQcStatus;
 use App\Domains\Inventory\Enums\MovementStatus;
 use App\Domains\Inventory\Enums\ReconciliationFindingStatus;
 use App\Domains\Inventory\Enums\ReconciliationRunStatus;
+use App\Domains\Inventory\Enums\ReservationReferenceType;
 use App\Domains\Inventory\Enums\SerialStatus;
 use App\Domains\Inventory\Enums\StockCondition;
 use App\Domains\Inventory\Models\ItemSerial;
 use App\Domains\Inventory\Models\ReconciliationFinding;
 use App\Domains\Inventory\Services\ExpiryMonitor;
+use App\Domains\Inventory\Services\PickingPlanner;
 use App\Domains\Inventory\Services\RecallService;
 use App\Domains\Inventory\Services\ReconciliationService;
 use App\Domains\Inventory\Services\ReservationService;
 use App\Domains\Inventory\Services\ReversalService;
-use App\Domains\Inventory\Enums\ReservationReferenceType;
 use App\Domains\Organization\Actions\CreateStorageLocationAction;
-use App\Domains\Organization\Enums\StorageLocationUsage;
 use App\Domains\Organization\Models\Warehouse;
 use App\Domains\Platform\Seeds\ApprovalPoliciesSeed;
 use App\Domains\Platform\Seeds\DocumentSequencesSeed;
@@ -108,6 +109,30 @@ final class InventoryDocumentsTest extends TestCase
         $this->assertSame(SerialStatus::IN_STOCK, ItemSerial::query()->where('serial_number', 'OB-SN-1')->firstOrFail()->lifecycle_status);
         $this->assertSame('100.0000', (string) DB::table('stock_movement_lines')->where('stock_movement_id', $outcome->body['stock_movement_ids'][0])
             ->where('item_id', $lotItem->id)->value('total_cost_snapshot'));
+    }
+
+    public function test_opening_stock_entered_as_available_is_released_for_picking_even_when_receipts_need_inspection(): void
+    {
+        $wh = $this->warehouse('OQ'.Str::upper(Str::random(4)));
+        $item = $this->item(TrackingMode::LOT);
+        $item->forceFill(['quality_control_policy' => QcPolicy::INSPECT_ON_RECEIPT])->save();
+        $flow = app(OpeningBalanceWorkflow::class);
+        $preparer = $this->superAdmin();
+        $approver = $this->superAdmin();
+        $doc = $flow->save(['warehouse_id' => $wh->id, 'cutoff_date' => now()->toDateString(), 'lines' => [
+            ['item_id' => $item->id, 'storage_location_id' => $wh->default_storage_location_id, 'quantity' => '30', 'unit_cost' => '4',
+                'lot_number' => 'OQ-AVAIL', 'expiry_date' => now()->addYear()->toDateString()],
+            ['item_id' => $item->id, 'storage_location_id' => $wh->default_storage_location_id, 'quantity' => '5', 'unit_cost' => '4',
+                'lot_number' => 'OQ-QUAR', 'expiry_date' => now()->addYear()->toDateString(), 'stock_condition' => 'quarantine'],
+        ]], $preparer);
+        $flow->submit($doc->id, $preparer);
+        $flow->approve($doc->id, $approver);
+        $flow->post($doc->id, $approver, $this->key());
+
+        $lots = DB::table('inventory_lots')->where('item_id', $item->id)->pluck('qc_status', 'lot_number');
+        $this->assertSame(['OQ-AVAIL' => 'released', 'OQ-QUAR' => 'pending'], $lots->sortKeys()->all());
+        $plan = app(PickingPlanner::class)->plan($item->refresh(), null, $wh->id, '12');
+        $this->assertSame([['OQ-AVAIL', '12']], array_map(fn (array $p) => [$p['lot_number'], $p['take']], $plan), 'opening stock can be picked and transferred');
     }
 
     public function test_relocation_moves_between_bins_and_condition_change_release_needs_qc_released_lots(): void

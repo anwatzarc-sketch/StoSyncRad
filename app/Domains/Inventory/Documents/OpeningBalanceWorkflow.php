@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\Inventory\Documents;
 
 use App\Domains\IdentityAccess\Models\UserAccount;
+use App\Domains\Inventory\Enums\LotQcStatus;
 use App\Domains\Inventory\Enums\MovementType;
 use App\Domains\Inventory\Enums\OpeningBalanceStatus;
 use App\Domains\Inventory\Enums\StockCondition;
@@ -93,8 +94,13 @@ final class OpeningBalanceWorkflow extends InventoryDocumentWorkflow
             $to = $this->locations->forStorageLocation($line->storage_location_id)->id;
             $lotId = null;
             if ($item->tracking_mode->requiresLot() || $line->lot_number !== null) {
-                $lotId = $this->lots->resolveForReceipt($item, $line->item_variant_id, $line->lot_number, null, $line->manufacture_date?->toDateString(),
-                    $line->expiry_date?->toDateString(), DocumentType::OPENING_BALANCE->value, $doc->id, $actor?->id)->id;
+                $lot = $this->lots->resolveForReceipt($item, $line->item_variant_id, $line->lot_number, null, $line->manufacture_date?->toDateString(),
+                    $line->expiry_date?->toDateString(), DocumentType::OPENING_BALANCE->value, $doc->id, $actor?->id);
+                // Stock declared available at cut-off was accepted before go-live: its lot does not wait for receiving QC.
+                if ($line->stock_condition === StockCondition::AVAILABLE && $lot->qc_status === LotQcStatus::PENDING) {
+                    $lot->forceFill(['qc_status' => LotQcStatus::RELEASED, 'qc_released_by' => $actor?->id, 'qc_released_at' => now()])->save();
+                }
+                $lotId = $lot->id;
             }
             if ($line->serial_numbers) {
                 foreach ($line->serial_numbers as $number) {
