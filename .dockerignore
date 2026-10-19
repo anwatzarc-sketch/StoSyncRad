@@ -1,0 +1,42 @@
+# Secrets never enter the image; configuration is supplied at runtime.
+.env
+.env.*
+auth.json
+
+# The image installs production dependencies and builds assets itself.
+node_modules
+vendor
+public/build
+public/hot
+public/storage
+bootstrap/cache/*.php
+
+# Local runtime state (uploads, exports, sessions, compiled views, logs).
+storage/app/private/*
+storage/app/public/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/testing/*
+storage/framework/views/*
+storage/logs/*
+storage/pail
+storage/*.key
+
+# Tooling, tests and docs not needed at runtime.
+.git
+.agents
+.claude
+.cursor
+.idea
+.vscode
+.zed
+.phpunit.cache
+.phpunit.result.cache
+tests
+Specs
+phpunit.xml
+boost.json
+AGENTS.md
+CLAUDE.md
+Dockerfile
+.dockerignore
