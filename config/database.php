@@ -37,6 +37,12 @@ return [
 
     'default' => env('DB_CONNECTION', 'pgsql'),
 
+    // Login names of the runtime and reporting roles, used by migrations for GRANT/REVOKE.
+    'roles' => [
+        'app' => env('DB_USERNAME', 'stosyncrad_app'),
+        'reporting' => env('DB_REPORTING_USERNAME', 'stosyncrad_reporting'),
+    ],
+
     'connections' => [
 
         'pgsql' => $pgsql('DB_USERNAME', 'DB_PASSWORD'),

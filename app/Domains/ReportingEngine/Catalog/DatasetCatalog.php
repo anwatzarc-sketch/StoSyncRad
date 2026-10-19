@@ -71,7 +71,7 @@ final class DatasetCatalog
         foreach ($this->all() as $d) {
             $db->statement("DROP VIEW IF EXISTS {$d->view()} CASCADE");
             $db->statement("CREATE VIEW {$d->view()} WITH (security_barrier = true) AS {$d->sql}");
-            $db->statement("GRANT SELECT ON {$d->view()} TO ".Pg::REPORTING_ROLE);
+            $db->statement("GRANT SELECT ON {$d->view()} TO ".Pg::reportingRole());
             $db->statement("COMMENT ON VIEW {$d->view()} IS ".$db->getPdo()->quote($d->label));
         }
 

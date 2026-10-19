@@ -16,6 +16,12 @@ return [
     'default' => env('QUEUE_CONNECTION', 'database'),
 
     /*
+    | Hosts that cannot keep a queue worker running (shared hosting with only cron): the scheduler
+    | starts a short-lived worker every minute that drains the queues and exits.
+    */
+    'work_from_scheduler' => (bool) env('QUEUE_WORK_FROM_SCHEDULER', false),
+
+    /*
     |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------

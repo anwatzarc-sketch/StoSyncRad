@@ -169,8 +169,8 @@ return new class extends Migration
 
         // The reporting role reads only views in this schema (Chapter 13 §13.11).
         DB::statement('CREATE SCHEMA IF NOT EXISTS reporting');
-        DB::statement('GRANT USAGE ON SCHEMA reporting TO '.Pg::REPORTING_ROLE);
-        DB::statement('REVOKE ALL ON SCHEMA reporting FROM '.Pg::APP_ROLE);
+        DB::statement('GRANT USAGE ON SCHEMA reporting TO '.Pg::reportingRole());
+        DB::statement('REVOKE ALL ON SCHEMA reporting FROM '.Pg::appRole());
     }
 
     private function messaging(): void

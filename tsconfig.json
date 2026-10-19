@@ -16,8 +16,7 @@
         "useDefineForClassFields": true,
         "verbatimModuleSyntax": true,
         "types": ["vite/client"],
-        "baseUrl": ".",
-        "paths": { "@/*": ["resources/js/*"] }
+        "paths": { "@/*": ["./resources/js/*"] }
     },
     "include": ["resources/js/**/*.ts", "resources/js/**/*.vue", "resources/js/**/*.d.ts"],
     "exclude": ["resources/js/sw.ts", "node_modules", "public"]

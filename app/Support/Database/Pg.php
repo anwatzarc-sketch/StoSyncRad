@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Database;
 
+use App\Support\Enums\Priority;
 use App\Support\Enums\SystemEnum;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,23 @@ final class Pg
     public const APP_ROLE = 'stosyncrad_app';
 
     public const REPORTING_ROLE = 'stosyncrad_reporting';
+
+    /** The runtime role as a quoted identifier (its login name from the environment; hosting panels may prefix names). */
+    public static function appRole(): string
+    {
+        return self::quoteIdentifier((string) config('database.roles.app', self::APP_ROLE));
+    }
+
+    /** The reporting reader role as a quoted identifier. */
+    public static function reportingRole(): string
+    {
+        return self::quoteIdentifier((string) config('database.roles.reporting', self::REPORTING_ROLE));
+    }
+
+    private static function quoteIdentifier(string $name): string
+    {
+        return '"'.str_replace('"', '""', $name).'"';
+    }
 
     /** Standard UUID v7 primary key column. */
     public static function uuidPrimary(Blueprint $table): void
@@ -116,7 +134,7 @@ final class Pg
     {
         self::ensureAppendOnlyFunction();
 
-        DB::statement("REVOKE UPDATE, DELETE, TRUNCATE ON \"$table\" FROM ".self::APP_ROLE);
+        DB::statement("REVOKE UPDATE, DELETE, TRUNCATE ON \"$table\" FROM ".self::appRole());
 
         // Trigger arguments are always string literals; pass a PostgreSQL array literal.
         $args = $updatableColumns === []
@@ -140,7 +158,7 @@ final class Pg
     public static function grantColumnUpdate(string $table, array $columns): void
     {
         $cols = implode(', ', array_map(static fn (string $c) => "\"$c\"", $columns));
-        DB::statement("GRANT UPDATE ($cols) ON \"$table\" TO ".self::APP_ROLE);
+        DB::statement("GRANT UPDATE ($cols) ON \"$table\" TO ".self::appRole());
     }
 
     /**
@@ -179,13 +197,13 @@ final class Pg
     /** CHECKs shared by every document table (priority enum). */
     public static function documentChecks(string $table): void
     {
-        self::enumCheck($table, 'priority', \App\Support\Enums\Priority::class);
+        self::enumCheck($table, 'priority', Priority::class);
     }
 
     /** Grant SELECT on a reporting view to the reporting role. */
     public static function grantReportingSelect(string $qualifiedView): void
     {
-        DB::statement("GRANT SELECT ON $qualifiedView TO ".self::REPORTING_ROLE);
+        DB::statement("GRANT SELECT ON $qualifiedView TO ".self::reportingRole());
     }
 
     private static function ensureAppendOnlyFunction(): void

@@ -59,3 +59,8 @@ Schedule::command('inventory:expiry-monitor')->dailyAt('00:30')->when($whenLive)
 Schedule::command('sales:expire-quotations')->dailyAt('00:45')->when($whenLive)->withoutOverlapping(30)->onOneServer();
 Schedule::command('inventory:reconcile')->dailyAt('02:00')->when($whenLive)->withoutOverlapping(120)->onOneServer();
 Schedule::command('queue:prune-failed --hours=720')->daily()->when($whenLive);
+
+if (config('queue.work_from_scheduler')) {
+    Schedule::command('queue:work --queue=imports,reporting,default --stop-when-empty --max-time=50 --tries=1')
+        ->everyMinute()->name('queue-drain')->withoutOverlapping(30)->runInBackground();
+}
