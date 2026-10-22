@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Transactions;
 
 use App\Domains\Platform\Config\PlatformConfig;
-use App\Providers\PlatformServiceProvider;
+use App\Support\Database\MySqlConnection;
 use App\Support\Database\SqlError;
 use App\Support\Exceptions\DomainException;
 use Closure;
@@ -44,7 +44,7 @@ final class TransactionRunner
         // Session settings must be in place before BEGIN; only the outermost caller changes them.
         $owns = $db->transactionLevel() === 0;
         if ($owns) {
-            $db->unprepared('SET SESSION innodb_lock_wait_timeout = '.PlatformServiceProvider::lockWaitSeconds($this->config->int('db.lock_timeout_ms')));
+            $db->unprepared('SET SESSION innodb_lock_wait_timeout = '.MySqlConnection::lockWaitSeconds($this->config->int('db.lock_timeout_ms')));
         }
 
         try {
@@ -92,7 +92,7 @@ final class TransactionRunner
             return;
         }
         try {
-            $db->unprepared('SET SESSION innodb_lock_wait_timeout = '.PlatformServiceProvider::lockWaitSeconds($configured));
+            $db->unprepared('SET SESSION innodb_lock_wait_timeout = '.MySqlConnection::lockWaitSeconds($configured));
         } catch (Throwable) {
             // The connection may be gone; it re-applies its settings when it reconnects.
         }

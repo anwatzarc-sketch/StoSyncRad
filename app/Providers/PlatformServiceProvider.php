@@ -19,7 +19,6 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Database\Events\MigrationEnded;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\MigrationStarted;
@@ -48,10 +47,8 @@ final class PlatformServiceProvider extends ServiceProvider
         // Only a real deadlock is a "concurrency error": InnoDB has already rolled the whole transaction
         // back. Laravel's default also counts lock-wait timeouts, which roll back just the statement;
         // treating those as deadlocks would skip ROLLBACK TO SAVEPOINT and keep half-applied nested work.
+        // The connection class also applies the session statement/lock timeouts whenever it opens a PDO.
         Connection::resolverFor('mysql', fn ($pdo, $database, $prefix, $config) => new MySqlConnection($pdo, $database, $prefix, $config));
-        // Registered here, not in boot(): other providers may open the default connection while booting,
-        // and its safety settings must still be applied (MySQL has no per-account session defaults).
-        $this->applyConnectionTimeouts();
 
         $this->app->singleton(ConcurrencyErrorDetector::class, fn () => new class implements ConcurrencyErrorDetector
         {
@@ -171,43 +168,6 @@ final class PlatformServiceProvider extends ServiceProvider
 
             return $this->middleware('feature:'.$flag);
         });
-    }
-
-    /**
-     * Apply per-connection statement and lock timeouts on connect (Chapter 09 §9.7) and make the
-     * reporting session read-only. MySQL has no per-account session defaults, so these are the only
-     * place the limits are set.
-     */
-    private function applyConnectionTimeouts(): void
-    {
-        Event::listen(ConnectionEstablished::class, function (ConnectionEstablished $event): void {
-            $connection = $event->connection;
-            if (! $connection instanceof Connection || $connection->getDriverName() !== 'mysql') {
-                return;
-            }
-            $settings = config('database.timeouts.'.$connection->getName());
-            if (is_array($settings)) {
-                $statements = [];
-                if (($settings['statement_timeout'] ?? 0) > 0) {
-                    $statements[] = 'SESSION max_execution_time = '.(int) $settings['statement_timeout'];
-                }
-                if (($settings['lock_timeout'] ?? 0) > 0) {
-                    $statements[] = 'SESSION innodb_lock_wait_timeout = '.self::lockWaitSeconds((int) $settings['lock_timeout']);
-                }
-                // Metadata locks (DDL vs. open transactions) otherwise wait up to a year.
-                $statements[] = 'SESSION lock_wait_timeout = 30';
-                $connection->unprepared('SET '.implode(', ', $statements));
-            }
-            if ($connection->getName() === 'mysql_reporting') {
-                $connection->unprepared('SET SESSION transaction_read_only = ON');
-            }
-        });
-    }
-
-    /** innodb_lock_wait_timeout takes whole seconds (minimum 1); a configured millisecond limit rounds up. */
-    public static function lockWaitSeconds(int $milliseconds): int
-    {
-        return max(1, intdiv($milliseconds + 999, 1000));
     }
 
     /**
