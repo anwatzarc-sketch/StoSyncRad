@@ -42,7 +42,7 @@ final class WebShellTest extends TestCase
         $this->assertStringContainsString("frame-ancestors 'none'", $csp);
         $response->assertHeader('X-Content-Type-Options', 'nosniff');
 
-        $this->get('/')->assertRedirect('/login');
+        $this->get('/stock')->assertRedirect('/login');
         $this->get('/manifest.webmanifest')->assertOk()->assertJsonStructure(['name', 'short_name', 'start_url', 'icons']);
     }
 

@@ -2,6 +2,7 @@
 
 use App\Domains\Platform\Services\PlatformHealth;
 use App\Http\Controllers\Web\BrandController;
+use App\Http\Controllers\Web\MarketingController;
 use App\Http\Controllers\Web\PagesController;
 use Illuminate\Support\Facades\Route;
 
@@ -36,8 +37,10 @@ Route::middleware('guest')->group(function (): void {
 });
 
 // ---- Application pages (data via /api/v1; every rule enforced there) ---------------------------------
+// '/' is the dashboard once signed in; visitors get the product website there (MarketingController).
+Route::get('/', [MarketingController::class, 'home'])->name('app.dashboard');
+
 Route::middleware('auth')->name('app.')->group(function (): void {
-    Route::inertia('/', 'Dashboard')->name('dashboard');
     Route::inertia('/account', 'Account/Security')->name('account');
     Route::inertia('/notifications', 'Notifications')->name('notifications');
     Route::inertia('/scan', 'Stock/Scan')->name('scan');

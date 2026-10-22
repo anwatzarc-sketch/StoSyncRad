@@ -165,7 +165,7 @@ Every key is declared in code (Chapter 03 §3.2) with type, default, allowed sco
 | integration.ecommerce.enabled / integration.pos.enabled / integration.carrier.enabled | boolean | false | G |
 
 ## feature.*
-| feature.retail_sales, feature.ecommerce_fulfillment, feature.customer_returns, feature.allocation_planning, feature.serial_tracking, feature.kits, feature.landed_cost, feature.camera_scanning, feature.dark_mode, feature.production_store, feature.asn, feature.recalls, feature.multi_currency_purchasing | boolean | per seed (sales/ecommerce/kits/landed_cost/dark_mode/asn false; others true) | G |
+| feature.retail_sales, feature.ecommerce_fulfillment, feature.customer_returns, feature.allocation_planning, feature.serial_tracking, feature.kits, feature.landed_cost, feature.camera_scanning, feature.dark_mode, feature.production_store, feature.asn, feature.recalls, feature.multi_currency_purchasing, feature.customer_portal, feature.marketing_site | boolean | per seed (sales/ecommerce/kits/landed_cost/dark_mode/asn/customer_portal false; others true) | G |
 
 ## api.* / db.*
 | api.max_body_kb | integer | 2048 | G |

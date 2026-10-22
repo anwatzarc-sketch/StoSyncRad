@@ -17,6 +17,9 @@ export interface Product {
     tagline: string | null;
     vendor: string | null;
     vendor_url: string | null;
+    /** Sales contact on the product website. */
+    vendor_email: string | null;
+    vendor_phone: string | null;
     colors: Record<string, string>;
     assets: Record<string, string>;
 }

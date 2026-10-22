@@ -9,8 +9,22 @@
     <meta name="application-name" content="{{ $brand['app_short_name'] }}">
     <meta name="apple-mobile-web-app-title" content="{{ $brand['app_short_name'] }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    @isset($seo)
+    {{-- Product website pages: search and link-preview metadata (MarketingController). --}}
+    <meta name="description" content="{{ $seo['description'] }}">
+    <link rel="canonical" href="{{ $seo['url'] }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="{{ $brand['product']['name'] }}">
+    <meta property="og:title" content="{{ $seo['title'] }}">
+    <meta property="og:description" content="{{ $seo['description'] }}">
+    <meta property="og:url" content="{{ $seo['url'] }}">
+    <meta property="og:image" content="{{ $seo['image'] }}">
+    <meta name="twitter:card" content="summary">
+    <title inertia>{{ $seo['title'] }}</title>
+    @else
     <meta name="description" content="{{ $brand['product']['name'] }} — {{ $brand['product']['tagline'] }}">
     <title inertia>{{ $brand['company_name'] ? $brand['app_name'].' · '.$brand['company_name'] : $brand['app_name'] }}</title>
+    @endisset
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/brand/theme.css?v={{ urlencode((string) $brand['checksum']) }}">
     <link rel="icon" href="{{ $brand['product']['assets']['favicon_ico'] }}" sizes="48x48">

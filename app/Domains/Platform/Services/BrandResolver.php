@@ -73,6 +73,8 @@ final class BrandResolver
             'tagline' => config('product.tagline'),
             'vendor' => config('product.vendor'),
             'vendor_url' => config('product.vendor_url'),
+            'vendor_email' => config('product.vendor_email'),
+            'vendor_phone' => config('product.vendor_phone'),
             'colors' => (array) config('product.colors'),
             'assets' => array_map(fn (string $path) => $path.'?v='.$version, (array) config('product.assets')),
         ];

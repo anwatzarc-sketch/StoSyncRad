@@ -32,6 +32,7 @@ final class FeatureKeys implements ProvidesConfigKeys
             self::bool('feature.recalls', true, 'Recalls', 'Lot recalls that lock stock everywhere.'),
             self::bool('feature.multi_currency_purchasing', false, 'Multi-currency purchasing', 'Purchase orders in currencies other than the base currency.'),
             self::bool('feature.customer_portal', false, 'Customer portal', 'Public landing page, customer registration and the customer portal (catalog, quotations, orders, invoices, payment confirmations, deliveries).'),
+            self::bool('feature.marketing_site', true, 'Product website', 'Public StockSync product pages (home, features, solutions, security, onboarding, contact) for visitors who are not signed in. Off: visitors go straight to sign-in.'),
         ];
     }
 }

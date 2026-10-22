@@ -20,6 +20,9 @@ return [
     'tagline' => 'Intelligent Stock Management',
     'vendor' => 'Radiant Solutions',
     'vendor_url' => null,
+    // Sales contact shown on the product website (Contact page, demo requests). Null = hidden.
+    'vendor_email' => null,
+    'vendor_phone' => null,
 
     'colors' => [
         'navy' => '#04326d',      // logo navy — brand, navigation

@@ -109,7 +109,7 @@ return [
         'health.live', 'health.ready', 'setup.*', 'login', 'login.attempt', 'logout', 'app', 'app.*',
         'password.request', 'password.email', 'password.reset', 'password.update',
         'mfa.challenge', 'mfa.verify', 'brand.manifest', 'brand.theme', 'brand.asset', 'offline',
-        'pwa.reset', 'pwa.sw', 'password.reset.page', 'storage.local',
+        'pwa.reset', 'pwa.sw', 'password.reset.page', 'storage.local', 'marketing.*',
         // Customer portal: visitor pages and API (customer pages use their own portal:customer guard)
         'portal.public.*', 'portal.dashboard', 'portal.catalog', 'portal.product', 'portal.cart', 'portal.quotations', 'portal.quotation',
         'portal.orders', 'portal.order', 'portal.invoices', 'portal.invoice', 'portal.payments', 'portal.payment', 'portal.account', 'portal.team',
@@ -119,6 +119,7 @@ return [
     // Route names reachable before Platform Setup is locked.
     'pre_setup_route_names' => [
         'health.live', 'health.ready', 'setup.*', 'brand.manifest', 'brand.theme', 'brand.asset', 'offline', 'pwa.reset', 'pwa.sw', 'sanctum.csrf-cookie', 'api.v1.meta.brand',
+        'marketing.robots',
     ],
 
     // Connection used to persist failed-attempt audit rows after a rollback (Chapter 09 §9.9).
