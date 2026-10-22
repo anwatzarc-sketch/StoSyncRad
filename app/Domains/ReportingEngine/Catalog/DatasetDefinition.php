@@ -7,8 +7,8 @@ namespace App\Domains\ReportingEngine\Catalog;
 use App\Support\Enums\DataClassification;
 
 /**
- * A reportable dataset: a `reporting.<code>` view (reportable columns only, labels joined, scope
- * columns exposed, sensitive data excluded) plus its field and relationship metadata.
+ * A reportable dataset: a view in the companion reporting database (reportable columns only, labels
+ * joined, scope columns exposed, sensitive data excluded) plus its field and relationship metadata.
  */
 final class DatasetDefinition
 {
@@ -53,9 +53,21 @@ final class DatasetDefinition
         $this->relationships = $r;
     }
 
+    /** The view as an SQL reference: `<db>_reporting`.`<code>` (usable from any connection). */
     public function view(): string
     {
+        return '`'.self::reportingDatabase().'`.`'.$this->code.'`';
+    }
+
+    /** Environment-independent name recorded in report_datasets.source_view. */
+    public function sourceName(): string
+    {
         return 'reporting.'.$this->code;
+    }
+
+    public static function reportingDatabase(): string
+    {
+        return str_replace('`', '', (string) config('database.connections.mysql_reporting.database'));
     }
 
     public function hash(): string

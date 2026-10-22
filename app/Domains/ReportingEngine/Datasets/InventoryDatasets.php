@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Domains\ReportingEngine\Datasets;
 
+use App\Domains\Catalog\Enums\AbcClass;
 use App\Domains\Catalog\Enums\CostingMethod;
+use App\Domains\Inventory\Enums\ExpiryHorizon;
 use App\Domains\Inventory\Enums\LotLockStatus;
 use App\Domains\Inventory\Enums\LotQcStatus;
 use App\Domains\Inventory\Enums\LotStatus;
@@ -26,7 +28,7 @@ use App\Support\Enums\DataClassification as C;
 /** Stock positions, ledger, lots, serials, reservations, valuation and traceability (Chapter 07). */
 final class InventoryDatasets implements ProvidesDatasets
 {
-    private const S = "'00000000-0000-7000-8000-000000000000'::uuid";
+    private const S = "'00000000-0000-7000-8000-000000000000'";
 
     public static function datasets(): array
     {
@@ -49,7 +51,7 @@ final class InventoryDatasets implements ProvidesDatasets
                  WHERE b.quantity_on_hand <> 0 OR b.quantity_reserved <> 0
                 SQL, [
                 F::uuid('id', 'Position ID'), F::uuid('item_id', 'Item ID', 'catalog.items'), F::string('item_sku', 'SKU', 'catalog.items'), F::string('item_name', 'Item'),
-                F::uuid('category_id', 'Category ID'), F::string('category_path', 'Category'), F::enum('abc_class', 'ABC class', \App\Domains\Catalog\Enums\AbcClass::class),
+                F::uuid('category_id', 'Category ID'), F::string('category_path', 'Category'), F::enum('abc_class', 'ABC class', AbcClass::class),
                 F::uuid('item_variant_id', 'Variant ID'), F::uuid('warehouse_id', 'Warehouse ID'), F::string('warehouse_code', 'Warehouse'), F::uuid('branch_id', 'Branch ID'),
                 F::uuid('storage_location_id', 'Location ID'), F::string('location_path', 'Location'), F::enum('location_type', 'Location type', InventoryLocationType::class),
                 F::uuid('inventory_lot_id', 'Lot ID'), F::string('lot_number', 'Lot'), F::date('expiry_date', 'Expiry'), F::enum('stock_condition', 'Condition', StockCondition::class),
@@ -99,12 +101,12 @@ final class InventoryDatasets implements ProvidesDatasets
             new D('stock_movement_lines', 'Stock movement lines (ledger)', 'inventory', <<<'SQL'
                 SELECT ml.id, ml.stock_movement_id, m.movement_number, m.movement_type, m.status AS movement_status, m.posted_at, m.business_date,
                        m.source_document_type, m.source_document_number, ml.line_no, ml.item_id, i.sku AS item_sku, i.name AS item_name,
-                       sil.location_type AS source_location_type, ssl.full_path AS source_location_path, ml.source_warehouse_id, sw.code AS source_warehouse_code,
+                       sil.location_type AS source_location_type, srl.full_path AS source_location_path, ml.source_warehouse_id, sw.code AS source_warehouse_code,
                        dil.location_type AS destination_location_type, dsl.full_path AS destination_location_path, ml.destination_warehouse_id,
                        dw.code AS destination_warehouse_code, ml.source_condition, ml.destination_condition, ml.inventory_lot_id, l.lot_number,
                        s.serial_number, ml.quantity, ml.unit_cost_snapshot AS unit_cost, ml.total_cost_snapshot AS total_cost, ml.reversed_quantity, p.name AS partner_name
                   FROM stock_movement_lines ml JOIN stock_movements m ON m.id = ml.stock_movement_id JOIN items i ON i.id = ml.item_id
-                  JOIN inventory_locations sil ON sil.id = ml.source_inventory_location_id LEFT JOIN storage_locations ssl ON ssl.id = sil.storage_location_id
+                  JOIN inventory_locations sil ON sil.id = ml.source_inventory_location_id LEFT JOIN storage_locations srl ON srl.id = sil.storage_location_id
                   JOIN inventory_locations dil ON dil.id = ml.destination_inventory_location_id LEFT JOIN storage_locations dsl ON dsl.id = dil.storage_location_id
                   LEFT JOIN warehouses sw ON sw.id = ml.source_warehouse_id LEFT JOIN warehouses dw ON dw.id = ml.destination_warehouse_id
                   LEFT JOIN inventory_lots l ON l.id = ml.inventory_lot_id LEFT JOIN item_serials s ON s.id = ml.item_serial_id
@@ -128,17 +130,17 @@ final class InventoryDatasets implements ProvidesDatasets
             new D('lots', 'Lots / batches', 'inventory', <<<'SQL'
                 SELECT l.id, l.item_id, i.sku AS item_sku, i.name AS item_name, l.lot_number, l.supplier_id, sp.name AS supplier_name,
                        l.manufacture_date, l.expiry_date, l.best_before_date, l.removal_date, l.qc_status, l.lock_status, l.status,
-                       (l.expiry_date - CURRENT_DATE) AS days_to_expiry,
+                       DATEDIFF(l.expiry_date, CURRENT_DATE) AS days_to_expiry,
                        CASE WHEN l.expiry_date IS NULL THEN 'no_expiry' WHEN l.expiry_date <= CURRENT_DATE THEN 'expired'
-                            WHEN l.expiry_date <= CURRENT_DATE + 7 THEN 'within_7_days' WHEN l.expiry_date <= CURRENT_DATE + 30 THEN 'within_30_days'
-                            WHEN l.expiry_date <= CURRENT_DATE + 90 THEN 'within_90_days' ELSE 'beyond_warning' END AS expiry_bucket, l.created_at
+                            WHEN l.expiry_date <= CURRENT_DATE + INTERVAL 7 DAY THEN 'within_7_days' WHEN l.expiry_date <= CURRENT_DATE + INTERVAL 30 DAY THEN 'within_30_days'
+                            WHEN l.expiry_date <= CURRENT_DATE + INTERVAL 90 DAY THEN 'within_90_days' ELSE 'beyond_warning' END AS expiry_bucket, l.created_at
                   FROM inventory_lots l JOIN items i ON i.id = l.item_id LEFT JOIN partners sp ON sp.id = l.supplier_id
                 SQL, [
                 F::uuid('id', 'Lot ID'), F::uuid('item_id', 'Item ID'), F::string('item_sku', 'SKU'), F::string('item_name', 'Item'), F::string('lot_number', 'Lot'),
                 F::uuid('supplier_id', 'Supplier ID'), F::string('supplier_name', 'Supplier'), F::date('manufacture_date', 'Manufactured'), F::date('expiry_date', 'Expiry'),
                 F::date('best_before_date', 'Best before'), F::date('removal_date', 'Removal date'), F::enum('qc_status', 'QC status', LotQcStatus::class),
                 F::enum('lock_status', 'Lock', LotLockStatus::class), F::enum('status', 'Status', LotStatus::class), F::int('days_to_expiry', 'Days to expiry'),
-                F::enum('expiry_bucket', 'Expiry horizon', \App\Domains\Inventory\Enums\ExpiryHorizon::class), F::datetime('created_at', 'Registered'),
+                F::enum('expiry_bucket', 'Expiry horizon', ExpiryHorizon::class), F::datetime('created_at', 'Registered'),
             ], 'inventory.lot.read', relationships: [R::to('item', 'Item', 'items', 'item_id'), R::many('positions', 'Positions', 'stock_positions', 'inventory_lot_id')],
                 defaultSort: [['expiry_date', 'asc']]),
 
@@ -184,7 +186,7 @@ final class InventoryDatasets implements ProvidesDatasets
                 SELECT b.id, b.item_id, i.sku AS item_sku, i.name AS item_name, il.lane_source_warehouse_id AS source_warehouse_id, sw.code AS source_warehouse_code,
                        il.lane_destination_warehouse_id AS destination_warehouse_id, dw.code AS destination_warehouse_code, l.lot_number, b.stock_condition,
                        b.quantity_on_hand AS quantity, b.total_value_projection AS total_value, b.last_movement_at,
-                       (CURRENT_DATE - b.last_movement_at::date) AS days_in_transit
+                       DATEDIFF(CURRENT_DATE, DATE(b.last_movement_at)) AS days_in_transit
                   FROM inventory_balances b JOIN inventory_locations il ON il.id = b.inventory_location_id JOIN items i ON i.id = b.item_id
                   LEFT JOIN warehouses sw ON sw.id = il.lane_source_warehouse_id LEFT JOIN warehouses dw ON dw.id = il.lane_destination_warehouse_id
                   LEFT JOIN inventory_lots l ON l.id = NULLIF(b.inventory_lot_id, $s)

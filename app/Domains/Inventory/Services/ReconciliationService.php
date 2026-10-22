@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Inventory\Services;
 
+use App\Domains\Audit\Services\AuditRecorder;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\Inventory\Enums\ReconciliationFindingStatus;
 use App\Domains\Inventory\Enums\ReconciliationRunStatus;
@@ -12,9 +13,8 @@ use App\Domains\Inventory\Models\ReconciliationFinding;
 use App\Domains\Inventory\Models\ReconciliationRun;
 use App\Domains\Inventory\Posting\BalanceLocker;
 use App\Domains\Inventory\Posting\PositionKey;
-use App\Domains\Organization\Enums\InventoryLocationType;
-use App\Domains\Audit\Services\AuditRecorder;
 use App\Domains\Messaging\Services\Outbox;
+use App\Domains\Organization\Enums\InventoryLocationType;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Math\Decimal as D;
@@ -41,7 +41,7 @@ final class ReconciliationService
             'started_by' => $actor?->id, 'started_at' => now()]);
         try {
             $rows = $this->differences($scope);
-            DB::transaction(function () use ($run, $rows, $scope) {
+            DB::transaction(function () use ($run, $rows) {
                 foreach ($rows['findings'] as $f) {
                     ReconciliationFinding::query()->forceCreate(['reconciliation_run_id' => $run->id] + $f + ['status' => ReconciliationFindingStatus::OPEN]);
                 }
@@ -104,12 +104,12 @@ final class ReconciliationService
             array_push($bindings, ...$scope['item_ids']);
         }
         $ledgerSql = "SELECT x.item_id, x.variant_id, x.location_id, x.lot_id, x.cond, SUM(x.q) AS q FROM (
-                SELECT ml.item_id, COALESCE(ml.item_variant_id, ?::uuid) AS variant_id, ml.destination_inventory_location_id AS location_id,
-                       COALESCE(ml.inventory_lot_id, ?::uuid) AS lot_id, ml.destination_condition AS cond, ml.quantity AS q
+                SELECT ml.item_id, COALESCE(ml.item_variant_id, ?) AS variant_id, ml.destination_inventory_location_id AS location_id,
+                       COALESCE(ml.inventory_lot_id, ?) AS lot_id, ml.destination_condition AS cond, ml.quantity AS q
                   FROM stock_movement_lines ml WHERE true $filters
                 UNION ALL
-                SELECT ml.item_id, COALESCE(ml.item_variant_id, ?::uuid), ml.source_inventory_location_id,
-                       COALESCE(ml.inventory_lot_id, ?::uuid), ml.source_condition, -ml.quantity
+                SELECT ml.item_id, COALESCE(ml.item_variant_id, ?), ml.source_inventory_location_id,
+                       COALESCE(ml.inventory_lot_id, ?), ml.source_condition, -ml.quantity
                   FROM stock_movement_lines ml WHERE true $filters
             ) x JOIN inventory_locations il ON il.id = x.location_id AND il.location_type IN ('".implode("','", $owned)."')
             GROUP BY x.item_id, x.variant_id, x.location_id, x.lot_id, x.cond";
@@ -117,21 +117,27 @@ final class ReconciliationService
         $balanceFilter = '';
         $balanceBindings = [];
         if (! empty($scope['warehouse_id'])) {
-            $balanceFilter .= ' AND (b.warehouse_id = ? OR l.location_id IN (SELECT id FROM inventory_locations WHERE warehouse_id = ?))';
+            $balanceFilter .= ' AND (j.balance_warehouse_id = ? OR j.inventory_location_id IN (SELECT id FROM inventory_locations WHERE warehouse_id = ?))';
             array_push($balanceBindings, $scope['warehouse_id'], $scope['warehouse_id']);
         }
         if (! empty($scope['item_ids'])) {
-            $balanceFilter .= ' AND COALESCE(b.item_id, l.item_id) IN ('.implode(',', array_fill(0, count($scope['item_ids']), '?')).')';
+            $balanceFilter .= ' AND j.item_id IN ('.implode(',', array_fill(0, count($scope['item_ids']), '?')).')';
             array_push($balanceBindings, ...$scope['item_ids']);
         }
-        $sql = "WITH l AS ($ledgerSql)
-            SELECT COALESCE(b.item_id, l.item_id) AS item_id, COALESCE(b.item_variant_id, l.variant_id) AS item_variant_id,
-                   COALESCE(b.inventory_location_id, l.location_id) AS inventory_location_id, COALESCE(b.inventory_lot_id, l.lot_id) AS inventory_lot_id,
-                   COALESCE(b.stock_condition, l.cond) AS stock_condition, COALESCE(l.q, 0) AS ledger_quantity, COALESCE(b.quantity_on_hand, 0) AS projection_quantity
-              FROM l FULL OUTER JOIN (SELECT * FROM inventory_balances WHERE owner_partner_id = '$s' AND package_id = '$s') b
-                ON b.item_id = l.item_id AND b.item_variant_id = l.variant_id AND b.inventory_location_id = l.location_id
-               AND b.inventory_lot_id = l.lot_id AND b.stock_condition = l.cond
-             WHERE true $balanceFilter";
+        // MySQL has no FULL OUTER JOIN: every projection row with its ledger total, plus ledger positions
+        // that have no projection row at all.
+        $match = 'b.item_id = l.item_id AND b.item_variant_id = l.variant_id AND b.inventory_location_id = l.location_id
+                  AND b.inventory_lot_id = l.lot_id AND b.stock_condition = l.cond';
+        $sql = "WITH l AS ($ledgerSql),
+                     b AS (SELECT * FROM inventory_balances WHERE owner_partner_id = '$s' AND package_id = '$s'),
+                     j AS (SELECT b.item_id, b.item_variant_id, b.inventory_location_id, b.inventory_lot_id, b.stock_condition,
+                                  b.warehouse_id AS balance_warehouse_id, COALESCE(l.q, 0) AS ledger_quantity, b.quantity_on_hand AS projection_quantity
+                             FROM b LEFT JOIN l ON $match
+                           UNION ALL
+                           SELECT l.item_id, l.variant_id, l.location_id, l.lot_id, l.cond, NULL, l.q, 0
+                             FROM l LEFT JOIN b ON $match WHERE b.id IS NULL)
+            SELECT j.item_id, j.item_variant_id, j.inventory_location_id, j.inventory_lot_id, j.stock_condition, j.ledger_quantity, j.projection_quantity
+              FROM j WHERE true $balanceFilter";
         $rows = DB::select($sql, array_merge($bindings, $balanceBindings));
         $findings = [];
         foreach ($rows as $r) {

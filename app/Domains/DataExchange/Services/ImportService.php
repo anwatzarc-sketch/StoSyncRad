@@ -227,7 +227,9 @@ final class ImportService
                         if ($value !== null && in_array($col, $spec['lists'], true)) {
                             $value = array_values(array_filter(array_map('trim', explode(';', (string) $value)), fn ($x) => $x !== ''));
                         } elseif ($value !== null && ($properties[$col] ?? null)?->type === PropertyType::BOOLEAN) {
-                            $value = match (strtolower((string) $value)) { 'yes', 'y', 'true', '1' => true, 'no', 'n', 'false', '0' => false, default => $value };
+                            $value = match (strtolower((string) $value)) {
+                                'yes', 'y', 'true', '1' => true, 'no', 'n', 'false', '0' => false, default => $value
+                            };
                         }
                         $raw[$col] = $value;
                     }
@@ -260,7 +262,7 @@ final class ImportService
             throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'The file is empty.');
         }
         // __raw is kept only for the error file; strip it from valid rows before processing.
-        DB::statement("UPDATE import_rows SET data = data - '__raw' WHERE import_batch_id = ? AND status = ?", [$batch->id, R::VALID->value]);
+        DB::statement("UPDATE import_rows SET data = JSON_REMOVE(data, '$.__raw') WHERE import_batch_id = ? AND status = ?", [$batch->id, R::VALID->value]);
         $batch->forceFill(['status' => S::PREVIEWED, 'row_count' => $n, 'valid_count' => $valid, 'invalid_count' => $invalid])->save();
     }
 

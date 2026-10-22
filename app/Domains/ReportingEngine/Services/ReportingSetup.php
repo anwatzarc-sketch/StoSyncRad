@@ -7,6 +7,9 @@ namespace App\Domains\ReportingEngine\Services;
 use App\Domains\Platform\Seeds\SeedRunner;
 use App\Domains\Platform\Seeds\StandardReportsSeed;
 use App\Domains\ReportingEngine\Catalog\DatasetCatalog;
+use App\Support\Database\Ddl;
+use App\Support\Database\SqlError;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /** Reporting checks and seeding used by setup step 13 and `platform:upgrade` (Chapter 02, Chapter 10). */
@@ -23,11 +26,19 @@ final class ReportingSetup
     {
         try {
             $db = DB::connection(ReportRunner::CONNECTION);
-            $role = (string) $db->selectOne('SELECT current_user AS u')->u;
-            $ro = (string) $db->selectOne('SHOW default_transaction_read_only')->default_transaction_read_only;
-            $baseRead = (bool) $db->selectOne("SELECT has_table_privilege(current_user, 'public.items', 'SELECT') AS p")->p;
-            $write = (bool) $db->selectOne("SELECT bool_or(has_table_privilege(current_user, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')) AS p
-                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('public', 'reporting') AND c.relkind IN ('r', 'p')")->p;
+            $role = (string) $db->selectOne('SELECT CURRENT_USER() AS u')->u;
+            $ro = (int) $db->selectOne('SELECT @@SESSION.transaction_read_only AS ro')->ro === 1 ? 'on' : 'off';
+            $baseRead = true;
+            try {
+                $db->select('SELECT 1 FROM '.Ddl::quoteIdentifier((string) config('database.connections.mysql.database')).'.items LIMIT 0');
+            } catch (QueryException $e) {
+                $baseRead = ! SqlError::isAccessDenied($e) && ! SqlError::is($e, 1044);
+            }
+            // information_schema shows an ordinary account only its own privileges.
+            $write = (bool) $db->selectOne("SELECT
+                    EXISTS (SELECT 1 FROM information_schema.USER_PRIVILEGES WHERE PRIVILEGE_TYPE IN ('INSERT', 'UPDATE', 'DELETE', 'DROP'))
+                 OR EXISTS (SELECT 1 FROM information_schema.SCHEMA_PRIVILEGES WHERE PRIVILEGE_TYPE IN ('INSERT', 'UPDATE', 'DELETE', 'DROP'))
+                 OR EXISTS (SELECT 1 FROM information_schema.TABLE_PRIVILEGES WHERE PRIVILEGE_TYPE IN ('INSERT', 'UPDATE', 'DELETE', 'DROP')) AS p")->p;
 
             return ['reachable' => true, 'read_only' => $ro === 'on' && ! $baseRead && ! $write, 'role' => $role,
                 'default_transaction_read_only' => $ro, 'can_read_base_tables' => $baseRead, 'can_write_any' => $write];

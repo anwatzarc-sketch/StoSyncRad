@@ -6,6 +6,7 @@ namespace App\Domains\DataExchange\Services;
 
 use App\Domains\Catalog\Actions\SaveCategoryAction;
 use App\Domains\Catalog\Actions\SaveItemAction;
+use App\Domains\Catalog\Enums\UomStatus;
 use App\Domains\Catalog\Models\Item;
 use App\Domains\Catalog\Models\ItemCategory;
 use App\Domains\Catalog\Models\ItemReorderRule;
@@ -16,7 +17,6 @@ use App\Domains\Catalog\Schemas\ItemReorderRuleSchema;
 use App\Domains\Catalog\Schemas\ItemSchema;
 use App\Domains\Catalog\Schemas\ItemVendorPricelistSchema;
 use App\Domains\Catalog\Schemas\UnitOfMeasureSchema;
-use App\Domains\Catalog\Enums\UomStatus;
 use App\Domains\DataExchange\Enums\ImportType as T;
 use App\Domains\IdentityAccess\Actions\SaveRoleAction;
 use App\Domains\IdentityAccess\Models\Role;
@@ -280,7 +280,7 @@ final class ImportHandlers
     private function variant(array $p, UserAccount $actor): string
     {
         $lines = DB::table('item_attribute_lines')->where('item_id', $p['item_id'])->get()
-            ->mapWithKeys(fn ($l) => [$l->item_attribute_id => \App\Support\Eloquent\Casts\PgTextArray::parse((string) $l->value_ids)])->all();
+            ->mapWithKeys(fn ($l) => [$l->item_attribute_id => (array) json_decode((string) $l->value_ids, true)])->all();
         foreach (array_filter(explode(';', (string) $p['attributes'])) as $pair) {
             [$attrCode, $valueCode] = array_map('trim', explode('=', $pair, 2) + [1 => '']);
             $attr = DB::table('item_attributes')->where('code', $attrCode)->first() ?? throw DomainException::of(ErrorCode::VALIDATION_FAILED, "Unknown attribute `$attrCode`.", ['field' => 'attributes']);

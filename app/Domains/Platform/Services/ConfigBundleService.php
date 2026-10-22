@@ -119,7 +119,7 @@ final class ConfigBundleService
                     'definition' => $d->definition, 'tags' => array_values((array) $d->tags), 'visibility' => $d->visibility->value,
                     'shared_role_codes' => array_values(array_filter(array_map(fn ($id) => $roleCodes[$id] ?? null, (array) $d->shared_role_ids)))])->all(),
             'integrations' => ['webhooks' => DB::table('webhook_endpoints')->orderBy('name')->get(['name', 'url', 'event_types', 'is_active'])
-                ->map(fn ($w) => ['name' => $w->name, 'url' => $w->url, 'event_types' => self::pgArray($w->event_types), 'is_active' => (bool) $w->is_active])->all()],
+                ->map(fn ($w) => ['name' => $w->name, 'url' => $w->url, 'event_types' => self::jsonList($w->event_types), 'is_active' => (bool) $w->is_active])->all()],
         ];
         $bundle['checksum'] = self::checksum($bundle);
         $this->audit->record($actor, 'platform.bundle.exported', 'platform_setup', (string) Str::uuid7(), null, ['checksum' => $bundle['checksum']]);
@@ -468,7 +468,7 @@ final class ConfigBundleService
                 $report['secrets']['webhook:'.$w['url']] = $created['secret'];
                 $out['created']++;
             } else {
-                $events = '{'.implode(',', array_map(fn ($e) => '"'.str_replace(['"', '\\'], '', (string) $e).'"', (array) $w['event_types'])).'}';
+                $events = json_encode(array_values(array_unique(array_map('strval', (array) $w['event_types']))), JSON_THROW_ON_ERROR);
                 DB::table('webhook_endpoints')->where('id', $existing->id)->update(['name' => $w['name'], 'event_types' => $events,
                     'is_active' => (bool) ($w['is_active'] ?? true), 'updated_at' => now()]);
                 $out['updated']++;
@@ -508,7 +508,7 @@ final class ConfigBundleService
             }
             $value = $row[$name];
             if ($p->type === PropertyType::ARRAY && is_string($value)) {
-                $value = str_starts_with($value, '[') ? json_decode($value, true) : self::pgArray($value);
+                $value = self::jsonList($value);
             } elseif ($p->type === PropertyType::JSON && is_string($value)) {
                 $value = json_decode($value, true);
             } elseif ($p->type === PropertyType::BOOLEAN) {
@@ -526,15 +526,14 @@ final class ConfigBundleService
             ?? throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'This section needs an owning account; create the Super Admin first.');
     }
 
-    /** @return array<int, string> */
-    private static function pgArray(mixed $value): array
+    /** A JSON array column as read through the query builder (a JSON string). @return array<int, string> */
+    private static function jsonList(mixed $value): array
     {
         if (is_array($value)) {
             return $value;
         }
-        $inner = trim((string) $value, '{}');
 
-        return $inner === '' ? [] : array_map(fn ($v) => trim($v, '"'), str_getcsv($inner, ',', '"', ''));
+        return $value === null || $value === '' ? [] : array_values((array) json_decode((string) $value, true, 512, JSON_THROW_ON_ERROR));
     }
 
     private static function canonical(mixed $value): mixed

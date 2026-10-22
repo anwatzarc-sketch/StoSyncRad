@@ -72,7 +72,7 @@ final class TransferDatasets implements ProvidesDatasets
 
             new D('transfer_receipts', 'Transfer receipts', 'transfers', <<<'SQL'
                 SELECT r.id, r.document_number, r.transfer_order_id, t.document_number AS transfer_number, r.status, t.source_warehouse_id, t.destination_warehouse_id,
-                       r.received_at, EXTRACT(EPOCH FROM (r.received_at - (SELECT min(d.dispatched_at) FROM transfer_dispatches d WHERE d.transfer_order_id = t.id))) / 3600.0 AS lead_time_hours
+                       r.received_at, TIMESTAMPDIFF(MICROSECOND, (SELECT min(d.dispatched_at) FROM transfer_dispatches d WHERE d.transfer_order_id = t.id), r.received_at) / 3600000000.0 AS lead_time_hours
                   FROM transfer_receipts r JOIN transfer_orders t ON t.id = r.transfer_order_id
                 SQL, [
                 F::uuid('id', 'Receipt ID'), F::string('document_number', 'Receipt'), F::uuid('transfer_order_id', 'Transfer ID'), F::string('transfer_number', 'Transfer'),

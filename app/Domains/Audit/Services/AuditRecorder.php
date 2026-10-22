@@ -79,7 +79,7 @@ final class AuditRecorder
      */
     public function failedAttempt(?UserAccount $actor, string $eventType, ?string $subjectType, ?string $subjectId, Throwable $cause, array $context = []): void
     {
-        $connection = (string) config('platform.failed_attempt_audit_connection', 'pgsql_audit');
+        $connection = (string) config('platform.failed_attempt_audit_connection', 'mysql_audit');
         $payload = ['error_class' => $cause::class, 'error_message' => Str::limit($cause->getMessage(), 500)] + $context;
 
         try {
@@ -98,7 +98,7 @@ final class AuditRecorder
         try {
             $this->record($actor, 'identity.access.denied', 'permission', null, null, null, null, [
                 'permission' => $permission, 'route' => $request->route()?->getName(), 'method' => $request->method(), 'path' => $request->path(),
-            ], connection: (string) config('platform.failed_attempt_audit_connection', 'pgsql_audit'));
+            ], connection: (string) config('platform.failed_attempt_audit_connection', 'mysql_audit'));
         } catch (Throwable $e) {
             Log::warning('audit.access_denied.unpersisted', ['permission' => $permission, 'error' => $e->getMessage()]);
         }

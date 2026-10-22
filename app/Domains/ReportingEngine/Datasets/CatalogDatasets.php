@@ -23,6 +23,7 @@ use App\Domains\ReportingEngine\Catalog\DatasetDefinition as D;
 use App\Domains\ReportingEngine\Catalog\DatasetField as F;
 use App\Domains\ReportingEngine\Catalog\DatasetRelationship as R;
 use App\Domains\ReportingEngine\Catalog\ProvidesDatasets;
+use App\Support\Enums\DataClassification;
 
 /** Master data: items, categories, variants, units, organization, partners. */
 final class CatalogDatasets implements ProvidesDatasets
@@ -61,7 +62,7 @@ final class CatalogDatasets implements ProvidesDatasets
                 SQL, [
                 F::uuid('id', 'Variant ID'), F::uuid('item_id', 'Item ID'), F::string('item_sku', 'Item SKU'), F::string('item_name', 'Item name'),
                 F::string('sku', 'Variant SKU'), F::string('name_suffix', 'Variant'), F::enum('status', 'Status', ItemStatus::class),
-                F::money('extra_list_price', 'Extra list price', \App\Support\Enums\DataClassification::OPERATIONAL), F::datetime('created_at', 'Created'),
+                F::money('extra_list_price', 'Extra list price', DataClassification::OPERATIONAL), F::datetime('created_at', 'Created'),
             ], 'catalog.variant.read', relationships: [R::to('item', 'Item', 'items', 'item_id')]),
 
             new D('units_of_measure', 'Units of measure', 'catalog', <<<'SQL'
@@ -83,7 +84,8 @@ final class CatalogDatasets implements ProvidesDatasets
 
             new D('warehouses', 'Warehouses', 'organization', <<<'SQL'
                 SELECT w.id, w.id AS warehouse_id, w.code, w.name, w.kind, w.status, w.branch_id, b.code AS branch_code, b.name AS branch_name,
-                       array_to_string(w.capabilities, ', ') AS capabilities
+                       (SELECT COALESCE(GROUP_CONCAT(j.v ORDER BY j.n SEPARATOR ', '), '')
+                          FROM JSON_TABLE(w.capabilities, '$[*]' COLUMNS (n FOR ORDINALITY, v VARCHAR(64) PATH '$')) j) AS capabilities
                   FROM warehouses w JOIN branches b ON b.id = w.branch_id
                 SQL, [
                 F::uuid('id', 'Warehouse ID'), F::uuid('warehouse_id', 'Warehouse scope'), F::string('code', 'Code'), F::string('name', 'Name'),
@@ -106,8 +108,11 @@ final class CatalogDatasets implements ProvidesDatasets
                 relationships: [R::to('warehouse', 'Warehouse', 'warehouses', 'warehouse_id')], defaultSort: [['full_path', 'asc']]),
 
             new D('partners', 'Partners (suppliers, customers, carriers)', 'partners', <<<'SQL'
-                SELECT p.id, p.code, p.name, array_to_string(p.partner_types, ', ') AS partner_types, 'supplier' = ANY (p.partner_types) AS is_supplier,
-                       'customer' = ANY (p.partner_types) AS is_customer, 'carrier' = ANY (p.partner_types) AS is_carrier, p.status, p.default_currency,
+                SELECT p.id, p.code, p.name,
+                       (SELECT COALESCE(GROUP_CONCAT(j.v ORDER BY j.n SEPARATOR ', '), '')
+                          FROM JSON_TABLE(p.partner_types, '$[*]' COLUMNS (n FOR ORDINALITY, v VARCHAR(64) PATH '$')) j) AS partner_types,
+                       'supplier' MEMBER OF (p.partner_types) AS is_supplier, 'customer' MEMBER OF (p.partner_types) AS is_customer,
+                       'carrier' MEMBER OF (p.partner_types) AS is_carrier, p.status, p.default_currency,
                        p.lead_time_days, p.rating, p.is_internal, p.email, p.phone, p.created_at
                   FROM partners p
                 SQL, [

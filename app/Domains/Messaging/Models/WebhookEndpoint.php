@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\Messaging\Models;
 
 use App\Support\Eloquent\BaseModel;
+use App\Support\Eloquent\Casts\JsonList;
 
 /** Registered receiver of outbox events (HMAC-signed deliveries). */
 final class WebhookEndpoint extends BaseModel
@@ -16,7 +17,7 @@ final class WebhookEndpoint extends BaseModel
     protected function casts(): array
     {
         return [
-            'event_types' => \App\Support\Eloquent\Casts\PgTextArray::class,
+            'event_types' => JsonList::class,
             'is_active' => 'boolean',
             'last_success_at' => 'immutable_datetime',
             'disabled_at' => 'immutable_datetime',

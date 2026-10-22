@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  All database tests run against PostgreSQL (Chapter 15). The schema is migrated once per
-  process with the deployment role; tests execute as the least-privilege runtime role so that
+  All database tests run against MySQL 8.4 (Chapter 15). The schema is migrated once per
+  process with the deployment account; tests execute as the least-privilege runtime account so that
   privileges, append-only triggers and CHECK constraints are exercised for real.
 -->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -34,7 +34,7 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array" force="true"/>
-        <env name="DB_CONNECTION" value="pgsql" force="true"/>
+        <env name="DB_CONNECTION" value="mysql" force="true"/>
         <env name="DB_DATABASE" value="stosyncrad_test" force="true"/>
         <env name="DB_URL" value="" force="true"/>
         <env name="NUMBERING_CONNECTION" value="" force="true"/>

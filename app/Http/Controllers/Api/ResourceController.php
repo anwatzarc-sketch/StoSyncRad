@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Domains\IdentityAccess\Services\Access;
 use App\Domains\Platform\Config\PlatformConfig;
 use App\Http\Support\ResourceRegistry;
+use App\Support\Database\Search;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Resources\ResourceWriter;
@@ -65,7 +66,7 @@ final class ResourceController extends ApiController
             $searchable = array_values(array_intersect($searchable, $columns));
             if ($searchable !== []) {
                 $term = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_substr((string) $request->query('q'), 0, 100)).'%';
-                $query->where(fn ($w) => array_map(fn ($c) => $w->orWhere($c, 'ILIKE', $term), $searchable));
+                $query->where(fn ($w) => array_map(fn ($c) => $w->orWhereRaw(Search::like($c), [$term]), $searchable));
             }
         }
         $sortable = array_merge($schema !== null ? $schema::sortable() : [], ['created_at', 'updated_at']);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Inventory\Posting;
 
+use App\Domains\Catalog\Enums\CostingMethod;
 use App\Domains\Catalog\Enums\ItemStatus;
 use App\Domains\Catalog\Enums\TrackingMode;
 use App\Domains\Catalog\Models\Item;
@@ -15,7 +16,6 @@ use App\Domains\Inventory\Enums\MovementType;
 use App\Domains\Inventory\Enums\ReservationStatus;
 use App\Domains\Inventory\Enums\SerialStatus;
 use App\Domains\Inventory\Enums\StockCondition;
-use App\Domains\Inventory\Models\InventoryBalance;
 use App\Domains\Inventory\Models\InventoryLot;
 use App\Domains\Inventory\Models\ItemSerial;
 use App\Domains\Inventory\Models\StockMovement;
@@ -32,6 +32,7 @@ use App\Support\Math\Decimal as D;
 use App\Support\Sentinel;
 use App\Support\Testing\FaultInjector;
 use App\Support\Transactions\PostingContext;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -75,7 +76,7 @@ final class InventoryPoster
         }
 
         if ($req->businessDate !== null) {    // postings use "now"; only the business date may be earlier, within the window
-            $date = \Carbon\CarbonImmutable::parse($req->businessDate)->startOfDay();
+            $date = CarbonImmutable::parse($req->businessDate)->startOfDay();
             $today = now()->toImmutable()->startOfDay();
             $window = $this->config->int('stock.backdating_window_days');
             if ($date->gt($today) || $date->lt($today->subDays($window))) {
@@ -112,6 +113,13 @@ final class InventoryPoster
 
         FaultInjector::point('after_document_validation');
 
+        // ---- 2b. Lock the parent rows this posting will update ------------------------------
+        // InnoDB foreign-key checks share-lock parent rows when a child row is inserted (a new
+        // position, layer or ledger line). Updating the same item afterwards — its company-level
+        // average cost or first_posted_at — would then deadlock with a concurrent posting holding
+        // the same shared lock, so those rows are locked exclusively first, in id order.
+        $this->lockUpdatedParents($req, $items, $locations);
+
         // ---- 3. Lock positions (global order) ---------------------------------------------
         $keys = [];
         $warehouseByLocation = [];
@@ -130,7 +138,7 @@ final class InventoryPoster
         $lotIds = array_values(array_unique(array_filter(array_map(static fn (MovementLine $l) => $l->lotId, $req->lines))));
         sort($lotIds, SORT_STRING);
         /** @var array<string, InventoryLot> $lots */
-        $lots = $lotIds === [] ? [] : InventoryLot::query()->whereIn('id', $lotIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id')->all();
+        $lots = $lotIds === [] ? [] : InventoryLot::query()->forceIndex('PRIMARY')->whereIn('id', $lotIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id')->all();
         foreach ($req->lines as $i => $line) {
             if ($line->lotId !== null) {
                 $lot = $lots[$line->lotId] ?? throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'Unknown lot.', ['line' => $i]);
@@ -142,7 +150,7 @@ final class InventoryPoster
         $serialIds = array_values(array_unique(array_filter(array_map(static fn (MovementLine $l) => $l->serialId, $req->lines))));
         sort($serialIds, SORT_STRING);
         /** @var array<string, ItemSerial> $serials */
-        $serials = $serialIds === [] ? [] : ItemSerial::query()->whereIn('id', $serialIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id')->all();
+        $serials = $serialIds === [] ? [] : ItemSerial::query()->forceIndex('PRIMARY')->whereIn('id', $serialIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id')->all();
         if (count($serialIds) !== count(array_filter(array_map(static fn (MovementLine $l) => $l->serialId, $req->lines)))) {
             throw DomainException::of(ErrorCode::SERIAL_STATE_INVALID, 'A serial number appears more than once in this posting.');
         }
@@ -162,7 +170,7 @@ final class InventoryPoster
         }
         $reservationIds = array_keys($reservationIds);
         sort($reservationIds, SORT_STRING);
-        $reservations = $reservationIds === [] ? [] : DB::table('stock_reservations')->whereIn('id', $reservationIds)
+        $reservations = $reservationIds === [] ? [] : DB::table('stock_reservations')->forceIndex('PRIMARY')->whereIn('id', $reservationIds)
             ->orderBy('id')->lockForUpdate()->get()->keyBy('id')->all();
 
         // ---- 7. Availability, frozen positions, negative-stock policy (under locks) --------
@@ -370,8 +378,11 @@ final class InventoryPoster
 
         // ---- 13. Valuation persistence, item bookkeeping, outbox ---------------------------
         $this->valuation->persist();
-        DB::update('UPDATE items SET first_posted_at = ? WHERE id IN ('.implode(',', array_fill(0, count($itemIds), '?')).') AND first_posted_at IS NULL',
-            array_merge([$now], $itemIds));
+        $firstPostedItemIds = array_values(array_filter($itemIds, static fn (string $id) => $items[$id]->first_posted_at === null));
+        if ($firstPostedItemIds !== []) {
+            DB::update('UPDATE items SET first_posted_at = ? WHERE id IN ('.implode(',', array_fill(0, count($firstPostedItemIds), '?')).') AND first_posted_at IS NULL',
+                array_merge([$now], $firstPostedItemIds));
+        }
         $variantIds = array_values(array_unique(array_filter(array_map(static fn (MovementLine $l) => $l->variantId, $req->lines))));
         if ($variantIds !== []) {
             DB::update('UPDATE item_variants SET first_posted_at = ? WHERE id IN ('.implode(',', array_fill(0, count($variantIds), '?')).') AND first_posted_at IS NULL',
@@ -393,6 +404,38 @@ final class InventoryPoster
     }
 
     // ------------------------------------------------------------------------------------------
+
+    /**
+     * Exclusively lock, in id order, the items and variants this posting will update: items getting
+     * their first posting or their company-level average cost (no variant, sentinel valuation bucket),
+     * and variants getting their first posting.
+     *
+     * @param  array<string, Item>  $items
+     * @param  array<string, InventoryLocation>  $locations
+     */
+    private function lockUpdatedParents(MovementRequest $req, array $items, array $locations): void
+    {
+        $itemIds = [];
+        foreach ($req->lines as $line) {
+            $buckets = [$this->valuation->bucket($locations[$line->fromLocationId]), $this->valuation->bucket($locations[$line->toLocationId])];
+            $writesAverage = $line->variantId === null && in_array(Sentinel::UUID, $buckets, true);
+            if ($items[$line->itemId]->first_posted_at === null || $writesAverage) {
+                $itemIds[$line->itemId] = true;
+            }
+        }
+        if ($itemIds !== []) {
+            $ids = array_keys($itemIds);
+            sort($ids, SORT_STRING);
+            Item::query()->forceIndex('PRIMARY')->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->pluck('id');
+        }
+
+        $variantIds = array_values(array_unique(array_filter(array_map(static fn (MovementLine $l) => $l->variantId, $req->lines))));
+        if ($variantIds !== []) {
+            sort($variantIds, SORT_STRING);
+            DB::table('item_variants')->forceIndex('PRIMARY')->whereIn('id', $variantIds)->whereNull('first_posted_at')
+                ->orderBy('id')->lockForUpdate()->pluck('id');
+        }
+    }
 
     private function validateLine(MovementRequest $req, MovementLine $line, Item $item, InventoryLocation $from, InventoryLocation $to, int $i): void
     {
@@ -483,7 +526,7 @@ final class InventoryPoster
         $toBucket = $this->valuation->bucket($to);
 
         if ($fromBucket === null) {          // external → owned
-            $cost = $line->unitCost ?? ($method === \App\Domains\Catalog\Enums\CostingMethod::STANDARD ? $item->standard_cost : null)
+            $cost = $line->unitCost ?? ($method === CostingMethod::STANDARD ? $item->standard_cost : null)
                 ?? $this->valuation->currentCost($line->itemId, $line->variantId, $toBucket);
 
             return $this->valuation->incoming($method, $line->itemId, $line->variantId, $toBucket, $line->quantity, (string) $cost, $lineId, $item->standard_cost);

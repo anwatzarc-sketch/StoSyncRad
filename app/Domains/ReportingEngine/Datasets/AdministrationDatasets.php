@@ -33,7 +33,7 @@ final class AdministrationDatasets implements ProvidesDatasets
             ], 'audit.approval.read', defaultSort: [['acted_at', 'desc']]),
 
             new D('audit_event_summaries', 'Audit events (summary)', 'audit', <<<'SQL'
-                SELECT e.id, e.event_type, split_part(e.event_type, '.', 1) AS module, e.actor_type, e.actor_account_id, u.username AS actor_username,
+                SELECT e.id, e.event_type, SUBSTRING_INDEX(e.event_type, '.', 1) AS module, e.actor_type, e.actor_account_id, u.username AS actor_username,
                        e.subject_type, e.subject_id, e.reason, e.is_failed_attempt, e.correlation_id, e.occurred_at
                   FROM audit_events e LEFT JOIN user_accounts u ON u.id = e.actor_account_id
                 SQL, [

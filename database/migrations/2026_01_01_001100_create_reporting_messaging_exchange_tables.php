@@ -13,7 +13,7 @@ use App\Domains\ReportingEngine\Enums\ReportRelationshipCardinality;
 use App\Domains\ReportingEngine\Enums\ReportRunStatus;
 use App\Domains\ReportingEngine\Enums\ReportSlotKind;
 use App\Domains\ReportingEngine\Enums\ReportVisibility;
-use App\Support\Database\Pg;
+use App\Support\Database\Ddl;
 use App\Support\Enums\DataClassification;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -36,7 +36,7 @@ return new class extends Migration
     private function reporting(): void
     {
         Schema::create('report_datasets', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->string('code', 80)->unique();
             $t->string('label', 160);
             $t->text('description')->nullable();
@@ -45,261 +45,258 @@ return new class extends Migration
             $t->string('warehouse_scope_column', 80)->nullable();
             $t->string('branch_scope_column', 80)->nullable();
             $t->string('own_records_column', 80)->nullable();
-            Pg::enumColumn($t, 'classification', default: DataClassification::OPERATIONAL->value);
+            Ddl::enumColumn($t, 'classification', default: DataClassification::OPERATIONAL->value);
             $t->string('required_permission', 120);
             $t->string('feature_flag', 120)->nullable();
-            $t->jsonb('default_sort')->nullable();
+            $t->json('default_sort')->nullable();
             $t->string('module', 40);
             $t->boolean('is_active')->default(true);
             $t->string('definition_hash', 64);
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
         });
-        Pg::enumCheck('report_datasets', 'classification', DataClassification::class);
+        Ddl::enumCheck('report_datasets', 'classification', DataClassification::class);
 
         Schema::create('report_dataset_fields', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('report_dataset_id');
             $t->string('code', 80);
             $t->string('label', 160);
-            Pg::enumColumn($t, 'field_type');
+            Ddl::enumColumn($t, 'field_type');
             $t->string('enum_code', 120)->nullable();
-            Pg::enumColumn($t, 'classification', default: DataClassification::OPERATIONAL->value);
+            Ddl::enumColumn($t, 'classification', default: DataClassification::OPERATIONAL->value);
             $t->string('required_permission', 120)->nullable();
             $t->boolean('is_aggregatable')->default(false);
             $t->boolean('is_groupable')->default(true);
             $t->boolean('is_filterable')->default(true);
             $t->boolean('is_sortable')->default(true);
             $t->string('drill_target', 120)->nullable();
-            $t->unsignedInteger('sort_order')->default(0);
-            Pg::timestamps($t);
+            $t->integer('sort_order')->default(0);
+            Ddl::timestamps($t);
             $t->foreign('report_dataset_id')->references('id')->on('report_datasets')->cascadeOnDelete();
             $t->unique(['report_dataset_id', 'code']);
         });
-        Pg::enumCheck('report_dataset_fields', 'field_type', ReportFieldType::class);
-        Pg::enumCheck('report_dataset_fields', 'classification', DataClassification::class);
+        Ddl::enumCheck('report_dataset_fields', 'field_type', ReportFieldType::class);
+        Ddl::enumCheck('report_dataset_fields', 'classification', DataClassification::class);
 
         Schema::create('report_dataset_relationships', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('report_dataset_id');
             $t->string('code', 80);
             $t->string('label', 160);
             $t->string('target_dataset_code', 80);
-            $t->jsonb('join_keys');
-            Pg::enumColumn($t, 'cardinality', default: ReportRelationshipCardinality::MANY_TO_ONE->value);
-            Pg::timestamps($t);
+            $t->json('join_keys');
+            Ddl::enumColumn($t, 'cardinality', default: ReportRelationshipCardinality::MANY_TO_ONE->value);
+            Ddl::timestamps($t);
             $t->foreign('report_dataset_id')->references('id')->on('report_datasets')->cascadeOnDelete();
             $t->unique(['report_dataset_id', 'code']);
         });
-        Pg::enumCheck('report_dataset_relationships', 'cardinality', ReportRelationshipCardinality::class);
+        Ddl::enumCheck('report_dataset_relationships', 'cardinality', ReportRelationshipCardinality::class);
 
         Schema::create('report_definitions', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->string('code', 120)->unique();
             $t->string('name', 200);
             $t->text('description')->nullable();
             $t->uuid('owner_account_id')->nullable();
-            Pg::enumColumn($t, 'visibility', default: ReportVisibility::PRIVATE->value);
+            Ddl::enumColumn($t, 'visibility', default: ReportVisibility::PRIVATE->value);
             $t->string('dataset_code', 80);
-            $t->jsonb('definition');
-            $t->unsignedInteger('definition_version')->default(1);
-            $t->unsignedInteger('schema_version')->default(1);
+            $t->json('definition');
+            $t->integer('definition_version')->default(1);
+            $t->integer('schema_version')->default(1);
             $t->boolean('is_system_seed')->default(false);
             $t->boolean('is_active')->default(true);
-            Pg::actorColumns($t);
-            Pg::timestamps($t);
+            Ddl::actorColumns($t);
+            Ddl::timestamps($t);
             $t->index(['owner_account_id', 'is_active']);
             $t->index('dataset_code');
         });
-        Pg::enumCheck('report_definitions', 'visibility', ReportVisibility::class);
-        DB::statement("ALTER TABLE report_definitions ADD COLUMN shared_role_ids uuid[] NOT NULL DEFAULT '{}'");
-        DB::statement("ALTER TABLE report_definitions ADD COLUMN tags varchar(60)[] NOT NULL DEFAULT '{}'");
+        Ddl::enumCheck('report_definitions', 'visibility', ReportVisibility::class);
+        Ddl::jsonArray('report_definitions', 'shared_role_ids', ['type' => 'string', 'pattern' => '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$']);
+        Ddl::jsonArray('report_definitions', 'tags', ['type' => 'string', 'maxLength' => 60]);
 
         Schema::create('report_definition_versions', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('report_definition_id');
-            $t->unsignedInteger('definition_version');
+            $t->integer('definition_version');
             $t->string('name', 200);
-            $t->jsonb('definition');
+            $t->json('definition');
             $t->uuid('changed_by')->nullable();
             $t->text('change_note')->nullable();
-            $t->timestampTz('created_at');
+            $t->dateTime('created_at', 6);
             $t->foreign('report_definition_id')->references('id')->on('report_definitions')->restrictOnDelete();
             $t->unique(['report_definition_id', 'definition_version']);
         });
-        Pg::appendOnly('report_definition_versions');
+        Ddl::appendOnly('report_definition_versions');
 
         Schema::create('report_runs', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('report_definition_id')->nullable();
-            $t->unsignedInteger('definition_version')->nullable();
+            $t->integer('definition_version')->nullable();
             $t->string('dataset_code', 80);
             $t->uuid('runner_account_id');
-            Pg::enumColumn($t, 'output_format', default: ReportOutputFormat::WEB->value);
-            $t->jsonb('parameters')->nullable();
-            $t->jsonb('authorized_scope_snapshot')->nullable();
-            Pg::enumColumn($t, 'status', default: ReportRunStatus::QUEUED->value);
-            $t->timestampTz('started_at')->nullable();
-            $t->timestampTz('finished_at')->nullable();
-            $t->unsignedInteger('duration_ms')->nullable();
-            $t->unsignedBigInteger('row_count')->nullable();
+            Ddl::enumColumn($t, 'output_format', default: ReportOutputFormat::WEB->value);
+            $t->json('parameters')->nullable();
+            $t->json('authorized_scope_snapshot')->nullable();
+            Ddl::enumColumn($t, 'status', default: ReportRunStatus::QUEUED->value);
+            $t->dateTime('started_at', 6)->nullable();
+            $t->dateTime('finished_at', 6)->nullable();
+            $t->integer('duration_ms')->nullable();
+            $t->bigInteger('row_count')->nullable();
             $t->boolean('truncated')->default(false);
             $t->string('file_path', 400)->nullable();
-            $t->unsignedBigInteger('file_size')->nullable();
-            $t->timestampTz('file_expires_at')->nullable();
+            $t->bigInteger('file_size')->nullable();
+            $t->dateTime('file_expires_at', 6)->nullable();
             $t->string('error_code', 64)->nullable();
             $t->text('error_message')->nullable();
             $t->integer('backend_pid')->nullable();
             $t->uuid('correlation_id')->nullable();
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
             $t->index(['runner_account_id', 'started_at']);
             $t->index(['status', 'file_expires_at']);
         });
-        Pg::enumCheck('report_runs', 'output_format', ReportOutputFormat::class);
-        Pg::enumCheck('report_runs', 'status', ReportRunStatus::class);
+        Ddl::enumCheck('report_runs', 'output_format', ReportOutputFormat::class);
+        Ddl::enumCheck('report_runs', 'status', ReportRunStatus::class);
 
         Schema::create('report_execution_slots', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'kind');
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'kind');
             $t->uuid('report_run_id')->nullable();
-            $t->timestampTz('acquired_at');
-            $t->timestampTz('expires_at');
+            $t->dateTime('acquired_at', 6);
+            $t->dateTime('expires_at', 6);
             $t->index(['kind', 'expires_at']);
         });
-        Pg::enumCheck('report_execution_slots', 'kind', ReportSlotKind::class);
+        Ddl::enumCheck('report_execution_slots', 'kind', ReportSlotKind::class);
 
-        // The reporting role reads only views in this schema (Chapter 13 §13.11).
-        DB::statement('CREATE SCHEMA IF NOT EXISTS reporting');
-        DB::statement('GRANT USAGE ON SCHEMA reporting TO '.Pg::reportingRole());
-        DB::statement('REVOKE ALL ON SCHEMA reporting FROM '.Pg::appRole());
+        // The reporting account reads only the views in the companion <db>_reporting database
+        // (Chapter 13 §13.11), which database/mysql/setup.sql creates and grants.
     }
 
     private function messaging(): void
     {
         Schema::create('notifications', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('user_account_id');
             $t->string('event_type', 120);
             $t->string('title', 200);
             $t->text('body')->nullable();
             $t->string('link', 400)->nullable();
-            $t->jsonb('data')->nullable();
-            Pg::enumColumn($t, 'status', default: NotificationStatus::UNREAD->value);
+            $t->json('data')->nullable();
+            Ddl::enumColumn($t, 'status', default: NotificationStatus::UNREAD->value);
             $t->uuid('outbox_event_id')->nullable();
-            $t->timestampTz('read_at')->nullable();
-            Pg::timestamps($t);
+            $t->dateTime('read_at', 6)->nullable();
+            Ddl::timestamps($t);
             $t->foreign('user_account_id')->references('id')->on('user_accounts')->restrictOnDelete();
             $t->index(['user_account_id', 'status', 'created_at']);
             $t->unique(['user_account_id', 'outbox_event_id']);
         });
-        Pg::enumCheck('notifications', 'status', NotificationStatus::class);
+        Ddl::enumCheck('notifications', 'status', NotificationStatus::class);
 
         Schema::create('notification_preferences', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('user_account_id');
             $t->string('event_type', 120);
             $t->boolean('is_muted')->default(false);
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
             $t->foreign('user_account_id')->references('id')->on('user_accounts')->restrictOnDelete();
             $t->unique(['user_account_id', 'event_type']);
         });
-        Pg::enumArray('notification_preferences', 'channels', NotificationChannel::class);
+        Ddl::enumArray('notification_preferences', 'channels', NotificationChannel::class);
 
         Schema::create('webhook_endpoints', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->string('name', 120);
             $t->string('url', 500);
             $t->text('secret_encrypted');
             $t->boolean('is_active')->default(true);
-            $t->unsignedInteger('consecutive_failures')->default(0);
-            $t->timestampTz('last_success_at')->nullable();
-            $t->timestampTz('disabled_at')->nullable();
-            Pg::actorColumns($t);
-            Pg::timestamps($t);
+            $t->integer('consecutive_failures')->default(0);
+            $t->dateTime('last_success_at', 6)->nullable();
+            $t->dateTime('disabled_at', 6)->nullable();
+            Ddl::actorColumns($t);
+            Ddl::timestamps($t);
         });
-        DB::statement("ALTER TABLE webhook_endpoints ADD COLUMN event_types varchar(120)[] NOT NULL DEFAULT '{}'");
+        Ddl::jsonArray('webhook_endpoints', 'event_types', ['type' => 'string', 'maxLength' => 120]);
 
         Schema::create('webhook_deliveries', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('webhook_endpoint_id');
             $t->uuid('outbox_event_id');
-            Pg::enumColumn($t, 'status', default: WebhookDeliveryStatus::PENDING->value);
-            $t->unsignedInteger('attempts')->default(0);
-            $t->timestampTz('next_attempt_at');
-            $t->unsignedSmallInteger('last_status_code')->nullable();
+            Ddl::enumColumn($t, 'status', default: WebhookDeliveryStatus::PENDING->value);
+            $t->integer('attempts')->default(0);
+            $t->dateTime('next_attempt_at', 6);
+            $t->smallInteger('last_status_code')->nullable();
             $t->text('last_error')->nullable();
-            $t->timestampTz('delivered_at')->nullable();
-            Pg::timestamps($t);
+            $t->dateTime('delivered_at', 6)->nullable();
+            Ddl::timestamps($t);
             $t->foreign('webhook_endpoint_id')->references('id')->on('webhook_endpoints')->restrictOnDelete();
             $t->foreign('outbox_event_id')->references('id')->on('outbox_events')->restrictOnDelete();
             $t->unique(['webhook_endpoint_id', 'outbox_event_id']);
             $t->index(['status', 'next_attempt_at']);
         });
-        Pg::enumCheck('webhook_deliveries', 'status', WebhookDeliveryStatus::class);
+        Ddl::enumCheck('webhook_deliveries', 'status', WebhookDeliveryStatus::class);
     }
 
     private function exchange(): void
     {
         Schema::create('import_batches', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'import_type');
-            Pg::enumColumn($t, 'status', default: ImportBatchStatus::UPLOADED->value);
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'import_type');
+            Ddl::enumColumn($t, 'status', default: ImportBatchStatus::UPLOADED->value);
             $t->string('file_path', 400);
             $t->string('original_filename', 255);
             $t->string('file_checksum', 64);
-            $t->unsignedInteger('row_count')->default(0);
-            $t->unsignedInteger('valid_count')->default(0);
-            $t->unsignedInteger('invalid_count')->default(0);
-            $t->unsignedInteger('imported_count')->default(0);
-            $t->jsonb('options')->nullable();
+            $t->integer('row_count')->default(0);
+            $t->integer('valid_count')->default(0);
+            $t->integer('invalid_count')->default(0);
+            $t->integer('imported_count')->default(0);
+            $t->json('options')->nullable();
             $t->uuid('confirmed_by')->nullable();
-            $t->timestampTz('confirmed_at')->nullable();
-            $t->timestampTz('started_at')->nullable();
-            $t->timestampTz('finished_at')->nullable();
+            $t->dateTime('confirmed_at', 6)->nullable();
+            $t->dateTime('started_at', 6)->nullable();
+            $t->dateTime('finished_at', 6)->nullable();
             $t->text('error')->nullable();
-            Pg::actorColumns($t);
-            Pg::timestamps($t);
+            Ddl::actorColumns($t);
+            Ddl::timestamps($t);
             $t->index(['import_type', 'status']);
         });
-        Pg::enumCheck('import_batches', 'import_type', ImportType::class);
-        Pg::enumCheck('import_batches', 'status', ImportBatchStatus::class);
+        Ddl::enumCheck('import_batches', 'import_type', ImportType::class);
+        Ddl::enumCheck('import_batches', 'status', ImportBatchStatus::class);
 
         Schema::create('import_rows', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('import_batch_id');
-            $t->unsignedInteger('row_number');
-            $t->jsonb('data');
-            Pg::enumColumn($t, 'status', default: ImportRowStatus::VALID->value);
-            $t->jsonb('errors')->nullable();
+            $t->integer('row_number');
+            $t->json('data');
+            Ddl::enumColumn($t, 'status', default: ImportRowStatus::VALID->value);
+            $t->json('errors')->nullable();
             $t->uuid('result_id')->nullable();
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
             $t->foreign('import_batch_id')->references('id')->on('import_batches')->restrictOnDelete();
             $t->unique(['import_batch_id', 'row_number']);
             $t->index(['import_batch_id', 'status']);
         });
-        Pg::enumCheck('import_rows', 'status', ImportRowStatus::class);
+        Ddl::enumCheck('import_rows', 'status', ImportRowStatus::class);
 
         Schema::create('export_files', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'kind');
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'kind');
             $t->string('disk', 40)->default('private');
             $t->string('path', 400);
             $t->string('filename', 255);
             $t->string('mime_type', 120);
-            $t->unsignedBigInteger('size')->default(0);
+            $t->bigInteger('size')->default(0);
             $t->uuid('owner_account_id');
             $t->uuid('report_run_id')->nullable();
-            $t->timestampTz('expires_at');
-            $t->timestampTz('last_downloaded_at')->nullable();
-            $t->unsignedInteger('download_count')->default(0);
-            Pg::timestamps($t);
+            $t->dateTime('expires_at', 6);
+            $t->dateTime('last_downloaded_at', 6)->nullable();
+            $t->integer('download_count')->default(0);
+            Ddl::timestamps($t);
             $t->index(['owner_account_id', 'expires_at']);
         });
-        Pg::enumCheck('export_files', 'kind', ExportFileKind::class);
+        Ddl::enumCheck('export_files', 'kind', ExportFileKind::class);
     }
 
     public function down(): void
     {
-        DB::statement('DROP SCHEMA IF EXISTS reporting CASCADE');
         foreach (['export_files', 'import_rows', 'import_batches', 'webhook_deliveries', 'webhook_endpoints', 'notification_preferences', 'notifications',
             'report_execution_slots', 'report_runs', 'report_definition_versions', 'report_definitions', 'report_dataset_relationships',
             'report_dataset_fields', 'report_datasets'] as $table) {

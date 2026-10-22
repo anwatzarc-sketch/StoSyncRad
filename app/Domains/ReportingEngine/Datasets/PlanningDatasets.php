@@ -53,17 +53,21 @@ final class PlanningDatasets implements ProvidesDatasets
                 relationships: [R::to('item', 'Item', 'items', 'item_id')], defaultSort: [['is_below_reorder_point', 'desc'], ['item_sku', 'asc']]),
 
             new D('demand_history', 'Demand history (monthly, from the ledger)', 'planning', <<<'SQL'
-                SELECT md5(ml.item_id::text || COALESCE(ml.source_warehouse_id::text, '') || date_trunc('month', m.business_date)::text)::uuid AS id,
-                       ml.item_id, i.sku AS item_sku, i.name AS item_name, ml.source_warehouse_id AS warehouse_id, w.code AS warehouse_code, w.branch_id,
-                       date_trunc('month', m.business_date)::date AS period_month,
-                       sum(ml.quantity) FILTER (WHERE m.movement_type IN ('issue', 'production_issue')) AS issued_quantity,
-                       sum(ml.quantity) FILTER (WHERE m.movement_type = 'sale_delivery') AS sold_quantity,
-                       sum(ml.quantity) FILTER (WHERE m.movement_type = 'transfer_dispatch') AS transferred_out_quantity,
-                       sum(ml.quantity) AS total_demand_quantity, sum(ml.total_cost_snapshot) AS demand_cost
-                  FROM stock_movement_lines ml JOIN stock_movements m ON m.id = ml.stock_movement_id JOIN items i ON i.id = ml.item_id
-                  LEFT JOIN warehouses w ON w.id = ml.source_warehouse_id
-                 WHERE m.movement_type IN ('issue', 'production_issue', 'sale_delivery', 'transfer_dispatch')
-                 GROUP BY ml.item_id, i.sku, i.name, ml.source_warehouse_id, w.code, w.branch_id, date_trunc('month', m.business_date)
+                SELECT LOWER(CONCAT_WS('-', SUBSTR(h.row_hash, 1, 8), SUBSTR(h.row_hash, 9, 4), SUBSTR(h.row_hash, 13, 4), SUBSTR(h.row_hash, 17, 4),
+                              SUBSTR(h.row_hash, 21, 12))) AS id,
+                       h.item_id, h.item_sku, h.item_name, h.warehouse_id, h.warehouse_code, h.branch_id, CAST(h.period_key AS DATE) AS period_month,
+                       h.issued_quantity, h.sold_quantity, h.transferred_out_quantity, h.total_demand_quantity, h.demand_cost
+                  FROM (SELECT MD5(CONCAT(d.item_id, COALESCE(d.warehouse_id, ''), d.period_key)) AS row_hash, d.*
+                          FROM (SELECT ml.item_id, i.sku AS item_sku, i.name AS item_name, ml.source_warehouse_id AS warehouse_id, w.code AS warehouse_code,
+                                       w.branch_id, DATE_FORMAT(m.business_date, '%Y-%m-01') AS period_key,
+                                       SUM(CASE WHEN m.movement_type IN ('issue', 'production_issue') THEN ml.quantity END) AS issued_quantity,
+                                       SUM(CASE WHEN m.movement_type = 'sale_delivery' THEN ml.quantity END) AS sold_quantity,
+                                       SUM(CASE WHEN m.movement_type = 'transfer_dispatch' THEN ml.quantity END) AS transferred_out_quantity,
+                                       SUM(ml.quantity) AS total_demand_quantity, SUM(ml.total_cost_snapshot) AS demand_cost
+                                  FROM stock_movement_lines ml JOIN stock_movements m ON m.id = ml.stock_movement_id JOIN items i ON i.id = ml.item_id
+                                  LEFT JOIN warehouses w ON w.id = ml.source_warehouse_id
+                                 WHERE m.movement_type IN ('issue', 'production_issue', 'sale_delivery', 'transfer_dispatch')
+                                 GROUP BY ml.item_id, i.sku, i.name, ml.source_warehouse_id, w.code, w.branch_id, DATE_FORMAT(m.business_date, '%Y-%m-01')) d) h
                 SQL, [
                 F::uuid('id', 'Row ID'), F::uuid('item_id', 'Item ID'), F::string('item_sku', 'SKU'), F::string('item_name', 'Item'), F::uuid('warehouse_id', 'Warehouse ID'),
                 F::string('warehouse_code', 'Warehouse'), F::uuid('branch_id', 'Branch ID'), F::date('period_month', 'Month'), F::qty('issued_quantity', 'Issued'),

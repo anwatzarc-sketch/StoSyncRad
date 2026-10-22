@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Domains\ReportingEngine\Models;
 
+use App\Domains\ReportingEngine\Enums\ReportVisibility;
 use App\Support\Eloquent\BaseModel;
+use App\Support\Eloquent\Casts\JsonList;
 
 /** Saved report definition (versioned; system seeds are read-only but cloneable). */
 final class ReportDefinition extends BaseModel
@@ -16,14 +18,14 @@ final class ReportDefinition extends BaseModel
     protected function casts(): array
     {
         return [
-            'visibility' => \App\Domains\ReportingEngine\Enums\ReportVisibility::class,
+            'visibility' => ReportVisibility::class,
             'definition' => 'array',
             'definition_version' => 'integer',
             'schema_version' => 'integer',
             'is_system_seed' => 'boolean',
             'is_active' => 'boolean',
-            'shared_role_ids' => \App\Support\Eloquent\Casts\PgTextArray::class,
-            'tags' => \App\Support\Eloquent\Casts\PgTextArray::class,
+            'shared_role_ids' => JsonList::class,
+            'tags' => JsonList::class,
         ];
     }
 }

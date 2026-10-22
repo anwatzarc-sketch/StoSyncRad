@@ -2,8 +2,8 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "stosyncrad/platform",
     "type": "project",
-    "description": "StoSyncRad - white-label single-company multi-branch stock management platform (Laravel 13, PostgreSQL 16+).",
-    "keywords": ["inventory", "warehouse", "stock", "laravel", "postgresql"],
+    "description": "StoSyncRad - white-label single-company multi-branch stock management platform (Laravel 13, MySQL 8.4).",
+    "keywords": ["inventory", "warehouse", "stock", "laravel", "mysql"],
     "license": "proprietary",
     "require": {
         "php": "^8.3",

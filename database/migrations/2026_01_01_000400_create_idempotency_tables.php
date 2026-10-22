@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\Database\Pg;
+use App\Support\Database\Ddl;
 use App\Support\Transactions\IdempotencyScopeType;
 use App\Support\Transactions\IdempotencyStatus;
 use Illuminate\Database\Migrations\Migration;
@@ -12,24 +12,24 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('idempotency_keys', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'scope_type');
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'scope_type');
             $t->string('scope_id', 64);
             $t->string('key', 128);
             $t->string('operation', 120);
             $t->string('request_hash', 64);
-            Pg::enumColumn($t, 'status', default: IdempotencyStatus::IN_PROGRESS->value);
-            $t->unsignedSmallInteger('response_code')->nullable();
-            $t->jsonb('response_body')->nullable();
+            Ddl::enumColumn($t, 'status', default: IdempotencyStatus::IN_PROGRESS->value);
+            $t->smallInteger('response_code')->nullable();
+            $t->json('response_body')->nullable();
             $t->string('result_document_type', 64)->nullable();
             $t->uuid('result_document_id')->nullable();
-            $t->timestampTz('expires_at');
-            Pg::timestamps($t);
+            $t->dateTime('expires_at', 6);
+            Ddl::timestamps($t);
             $t->unique(['scope_type', 'scope_id', 'key'], 'idempotency_keys_scope_key_uq');
             $t->index('expires_at');
         });
-        Pg::enumCheck('idempotency_keys', 'scope_type', IdempotencyScopeType::class);
-        Pg::enumCheck('idempotency_keys', 'status', IdempotencyStatus::class);
+        Ddl::enumCheck('idempotency_keys', 'scope_type', IdempotencyScopeType::class);
+        Ddl::enumCheck('idempotency_keys', 'status', IdempotencyStatus::class);
     }
 
     public function down(): void

@@ -7,14 +7,22 @@ namespace App\Providers;
 use App\Domains\IdentityAccess\Permissions\PermissionRegistry;
 use App\Domains\Platform\Config\ConfigRegistry;
 use App\Domains\Platform\Config\PlatformConfig;
+use App\Support\Database\Ddl;
+use App\Support\Database\MySqlConnection;
+use App\Support\Database\RuntimeGrants;
+use App\Support\Database\SqlError;
 use App\Support\Enums\EnumLabelResolver;
 use App\Support\Enums\EnumRegistry;
 use App\Support\Schema\SchemaRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\ConnectionEstablished;
+use Illuminate\Database\Events\MigrationEnded;
+use Illuminate\Database\Events\MigrationsEnded;
+use Illuminate\Database\Events\MigrationStarted;
 use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
@@ -36,6 +44,22 @@ final class PlatformServiceProvider extends ServiceProvider
         $this->app->singleton(PlatformConfig::class);
         $this->app->singleton(PermissionRegistry::class);
         $this->app->singleton(EnumLabelResolver::class, fn ($app) => new EnumLabelResolver($app['cache']->store()));
+
+        // Only a real deadlock is a "concurrency error": InnoDB has already rolled the whole transaction
+        // back. Laravel's default also counts lock-wait timeouts, which roll back just the statement;
+        // treating those as deadlocks would skip ROLLBACK TO SAVEPOINT and keep half-applied nested work.
+        Connection::resolverFor('mysql', fn ($pdo, $database, $prefix, $config) => new MySqlConnection($pdo, $database, $prefix, $config));
+        // Registered here, not in boot(): other providers may open the default connection while booting,
+        // and its safety settings must still be applied (MySQL has no per-account session defaults).
+        $this->applyConnectionTimeouts();
+
+        $this->app->singleton(ConcurrencyErrorDetector::class, fn () => new class implements ConcurrencyErrorDetector
+        {
+            public function causedByConcurrencyError(\Throwable $e): bool
+            {
+                return SqlError::isDeadlock($e);
+            }
+        });
     }
 
     public function boot(): void
@@ -61,7 +85,7 @@ final class PlatformServiceProvider extends ServiceProvider
         Model::preventSilentlyDiscardingAttributes(true);
 
         $this->registerRouteMacros();
-        $this->applyConnectionTimeouts();
+        $this->syncRuntimeGrantsAfterMigrations();
     }
 
     private function registerRouteMacros(): void
@@ -150,27 +174,58 @@ final class PlatformServiceProvider extends ServiceProvider
     }
 
     /**
-     * Apply per-connection statement/lock/idle timeouts on connect (Chapter 09 §9.7).
-     * Role-level settings are the floor; these let environments tighten further.
+     * Apply per-connection statement and lock timeouts on connect (Chapter 09 §9.7) and make the
+     * reporting session read-only. MySQL has no per-account session defaults, so these are the only
+     * place the limits are set.
      */
     private function applyConnectionTimeouts(): void
     {
         Event::listen(ConnectionEstablished::class, function (ConnectionEstablished $event): void {
             $connection = $event->connection;
-            if (! $connection instanceof Connection || $connection->getDriverName() !== 'pgsql') {
+            if (! $connection instanceof Connection || $connection->getDriverName() !== 'mysql') {
                 return;
             }
             $settings = config('database.timeouts.'.$connection->getName());
-            if (! is_array($settings)) {
+            if (is_array($settings)) {
+                $statements = [];
+                if (($settings['statement_timeout'] ?? 0) > 0) {
+                    $statements[] = 'SESSION max_execution_time = '.(int) $settings['statement_timeout'];
+                }
+                if (($settings['lock_timeout'] ?? 0) > 0) {
+                    $statements[] = 'SESSION innodb_lock_wait_timeout = '.self::lockWaitSeconds((int) $settings['lock_timeout']);
+                }
+                // Metadata locks (DDL vs. open transactions) otherwise wait up to a year.
+                $statements[] = 'SESSION lock_wait_timeout = 30';
+                $connection->unprepared('SET '.implode(', ', $statements));
+            }
+            if ($connection->getName() === 'mysql_reporting') {
+                $connection->unprepared('SET SESSION transaction_read_only = ON');
+            }
+        });
+    }
+
+    /** innodb_lock_wait_timeout takes whole seconds (minimum 1); a configured millisecond limit rounds up. */
+    public static function lockWaitSeconds(int $milliseconds): int
+    {
+        return max(1, intdiv($milliseconds + 999, 1000));
+    }
+
+    /**
+     * Add each migration's queued CHECK constraints when it ends, and re-grant the runtime account's
+     * table privileges whenever the schema changes.
+     */
+    private function syncRuntimeGrantsAfterMigrations(): void
+    {
+        Event::listen(MigrationStarted::class, fn () => Ddl::discardPendingChecks());
+        Event::listen(MigrationEnded::class, fn () => Ddl::flushChecks());
+
+        Event::listen(MigrationsEnded::class, function (MigrationsEnded $event): void {
+            if (($event->options['pretend'] ?? false) === true) {
                 return;
             }
-            foreach ($settings as $guc => $ms) {
-                if (is_int($ms) && $ms > 0 && preg_match('/^[a-z_]+$/', $guc) === 1) {
-                    $connection->unprepared("SET {$guc} = {$ms}");
-                }
-            }
-            if ($connection->getName() === 'pgsql_reporting') {
-                $connection->unprepared('SET default_transaction_read_only = on');
+            $name = $this->app->make('migrator')->getConnection();
+            if ($this->app->make('db')->connection($name)->getDriverName() === 'mysql') {
+                $this->app->make(RuntimeGrants::class)->sync($name);
             }
         });
     }

@@ -1,62 +1,81 @@
 <?php
 
 use Illuminate\Support\Str;
+use Pdo\Mysql;
 
 /*
 |--------------------------------------------------------------------------
-| PostgreSQL is the only supported database (Master Spec 2.0, README §Precedence)
+| MySQL 8.4 is the only supported database (Master Spec 2.0, README §Precedence)
 |--------------------------------------------------------------------------
-| Four connections map to four least-privilege database roles:
-|   pgsql            application runtime role  (DML; no DDL; append-only tables protected)
-|   pgsql_deploy     deployment role            (migrations and platform:* commands only)
-|   pgsql_reporting  reporting reader role      (SELECT on reporting.* views; read-only txns)
-|   pgsql_audit      runtime role, separate connection used ONLY to persist
+| Five connections map to four least-privilege accounts (database/mysql/setup.sql):
+|   mysql            application runtime account (DML; no DDL; append-only tables protected)
+|   mysql_deploy     deployment account          (migrations and platform:* commands only)
+|   mysql_reporting  reporting reader account    (SELECT on the <db>_reporting views; read-only)
+|   mysql_audit      runtime account, separate connection used ONLY to persist
 |                    failed-attempt audit rows after a rollback (Chapter 09 §9.9)
+|   mysql_numbering  runtime account, short autonomous transactions for document numbers
+| Every connection runs READ COMMITTED with a case-sensitive collation, matching the semantics the
+| domain code was written against, and exchanges timestamps in UTC (Chapter 05 §5.6).
 */
 
-$pgsql = static function (string $userEnv, string $passEnv, array $overrides = []): array {
+// TLS to the database server: set DB_SSL_CA (and DB_SSL_VERIFY=false only for self-signed test servers).
+$sslOptions = [];
+if (extension_loaded('pdo_mysql') && env('DB_SSL_CA')) {
+    $sslOptions = [
+        (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('DB_SSL_CA'),
+        (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_VERIFY_SERVER_CERT : PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT) => (bool) env('DB_SSL_VERIFY', true),
+    ];
+}
+
+$mysql = static function (string $userEnv, string $passEnv, array $overrides = []) use ($sslOptions): array {
     return array_merge([
-        'driver' => 'pgsql',
+        'driver' => 'mysql',
         'url' => env('DB_URL'),
         'host' => env('DB_HOST', '127.0.0.1'),
-        'port' => env('DB_PORT', '5432'),
+        'port' => env('DB_PORT', '3306'),
         'database' => env('DB_DATABASE', 'stosyncrad'),
         'username' => env($userEnv),
         'password' => env($passEnv),
-        'charset' => env('DB_CHARSET', 'utf8'),
+        'unix_socket' => env('DB_SOCKET', ''),
+        'charset' => 'utf8mb4',
+        'collation' => 'utf8mb4_0900_as_cs',
         'prefix' => '',
         'prefix_indexes' => true,
-        'search_path' => 'public',
-        'timezone' => 'UTC',   // timestamps are stored and exchanged in UTC (Chapter 05 §5.6)
-        'sslmode' => env('DB_SSLMODE', 'prefer'),
-        'options' => [],
+        'strict' => true,
+        'engine' => 'InnoDB',
+        'timezone' => '+00:00',
+        'isolation_level' => 'READ COMMITTED',
+        'options' => $sslOptions,
     ], $overrides);
 };
 
 return [
 
-    'default' => env('DB_CONNECTION', 'pgsql'),
+    'default' => env('DB_CONNECTION', 'mysql'),
 
-    // Login names of the runtime and reporting roles, used by migrations for GRANT/REVOKE.
-    'roles' => [
+    // Account names used by RuntimeGrants and the append-only triggers.
+    'accounts' => [
         'app' => env('DB_USERNAME', 'stosyncrad_app'),
+        'deploy' => env('DB_DEPLOY_USERNAME', 'stosyncrad_deploy'),
         'reporting' => env('DB_REPORTING_USERNAME', 'stosyncrad_reporting'),
+        'host' => env('DB_ACCOUNT_HOST', '%'),   // the host part the accounts were created with
     ],
 
     'connections' => [
 
-        'pgsql' => $pgsql('DB_USERNAME', 'DB_PASSWORD'),
+        'mysql' => $mysql('DB_USERNAME', 'DB_PASSWORD'),
 
-        'pgsql_deploy' => $pgsql('DB_DEPLOY_USERNAME', 'DB_DEPLOY_PASSWORD'),
+        'mysql_deploy' => $mysql('DB_DEPLOY_USERNAME', 'DB_DEPLOY_PASSWORD'),
 
-        'pgsql_reporting' => $pgsql('DB_REPORTING_USERNAME', 'DB_REPORTING_PASSWORD', [
-            'search_path' => 'reporting,public',
+        // Its default database is the companion reporting database, which holds only the views.
+        'mysql_reporting' => $mysql('DB_REPORTING_USERNAME', 'DB_REPORTING_PASSWORD', [
+            'database' => env('DB_REPORTING_DATABASE', env('DB_DATABASE', 'stosyncrad').'_reporting'),
         ]),
 
-        'pgsql_audit' => $pgsql('DB_USERNAME', 'DB_PASSWORD'),
+        'mysql_audit' => $mysql('DB_USERNAME', 'DB_PASSWORD'),
 
         // Autonomous short transactions for document number allocation (no lock held by postings).
-        'pgsql_numbering' => $pgsql('DB_USERNAME', 'DB_PASSWORD'),
+        'mysql_numbering' => $mysql('DB_USERNAME', 'DB_PASSWORD'),
 
         // Pure-logic unit tests only. Never evidence for locking, constraints or recovery.
         'sqlite_unit' => [
@@ -68,25 +87,27 @@ return [
     ],
 
     /*
-    | Session-level safety settings applied on connect for each role (milliseconds).
-    | Role-level defaults are also set in database/postgres/roles.sql; these allow the
-    | application to tighten (never loosen beyond the role) per environment.
+    | Session-level safety settings applied on connect for each connection (milliseconds).
+    |   statement_timeout  → max_execution_time (MySQL applies it to SELECT statements)
+    |   lock_timeout       → innodb_lock_wait_timeout (whole seconds, rounded up, minimum 1)
+    | MySQL has no idle-in-transaction timeout; wait_timeout only closes idle connections.
     */
     'timeouts' => [
-        'pgsql' => [
+        'mysql' => [
             'statement_timeout' => (int) env('DB_STATEMENT_TIMEOUT_MS', 15000),
             'lock_timeout' => (int) env('DB_LOCK_TIMEOUT_MS', 5000),
-            'idle_in_transaction_session_timeout' => (int) env('DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', 30000),
         ],
-        'pgsql_reporting' => [
+        'mysql_reporting' => [
             'statement_timeout' => (int) env('DB_REPORTING_STATEMENT_TIMEOUT_MS', 15000),
             'lock_timeout' => (int) env('DB_REPORTING_LOCK_TIMEOUT_MS', 2000),
-            'idle_in_transaction_session_timeout' => (int) env('DB_REPORTING_IDLE_TIMEOUT_MS', 180000),
         ],
-        'pgsql_audit' => [
+        'mysql_audit' => [
             'statement_timeout' => 5000,
             'lock_timeout' => 2000,
-            'idle_in_transaction_session_timeout' => 10000,
+        ],
+        'mysql_numbering' => [
+            'statement_timeout' => 5000,
+            'lock_timeout' => (int) env('DB_LOCK_TIMEOUT_MS', 5000),
         ],
     ],
 

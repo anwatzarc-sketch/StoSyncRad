@@ -66,7 +66,7 @@ final class PickingPlanner
         }
 
         match ($strategy) {
-            RemovalStrategy::FEFO => $q->orderByRaw('l.expiry_date ASC NULLS LAST')->orderByRaw('COALESCE(l.created_at, b.created_at) ASC'),
+            RemovalStrategy::FEFO => $q->orderByRaw('l.expiry_date IS NULL, l.expiry_date ASC')->orderByRaw('COALESCE(l.created_at, b.created_at) ASC'),
             RemovalStrategy::LIFO => $q->orderByRaw('COALESCE(l.created_at, b.created_at) DESC'),
             RemovalStrategy::CLOSEST_LOCATION => $q->orderBy('sl.sort_order')->orderBy('sl.full_path'),
             default => $q->orderByRaw('COALESCE(l.created_at, b.created_at) ASC'),

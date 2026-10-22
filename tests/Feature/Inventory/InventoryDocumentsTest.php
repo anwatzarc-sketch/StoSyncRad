@@ -254,7 +254,8 @@ final class InventoryDocumentsTest extends TestCase
         $this->assertSame(ReconciliationRunStatus::COMPLETED_CLEAN, $clean->status);
 
         DB::table('inventory_balances')->where('item_id', $item->id)->where('warehouse_id', $wh->id)->update(['quantity_on_hand' => 13]);   // simulated drift
-        $ledgerBefore = DB::table('stock_movement_lines')->selectRaw("count(*) AS n, md5(string_agg(id::text || quantity::text, ',' ORDER BY id)) AS h")->first();
+        $ledger = fn () => md5(DB::table('stock_movement_lines')->orderBy('id')->get(['id', 'quantity'])->map(fn ($l) => $l->id.':'.$l->quantity)->implode(','));
+        $ledgerBefore = $ledger();
         $run = $service->run($actor, ['item_ids' => [$item->id]]);
         $this->assertSame(ReconciliationRunStatus::COMPLETED_WITH_FINDINGS, $run->status);
         $finding = ReconciliationFinding::query()->where('reconciliation_run_id', $run->id)->firstOrFail();
@@ -263,8 +264,7 @@ final class InventoryDocumentsTest extends TestCase
         $service->repair($finding->id, $actor, 'Manual edit by DBA on ticket 42');
         $this->assertSame(ReconciliationFindingStatus::REPAIRED, $finding->refresh()->status);
         $this->assertSame('10.000000', $this->onHand($item, $wh));
-        $ledgerAfter = DB::table('stock_movement_lines')->selectRaw("count(*) AS n, md5(string_agg(id::text || quantity::text, ',' ORDER BY id)) AS h")->first();
-        $this->assertEquals($ledgerBefore, $ledgerAfter, 'repairs never touch the ledger');
+        $this->assertSame($ledgerBefore, $ledger(), 'repairs never touch the ledger');
         $this->assertSame(ReconciliationRunStatus::COMPLETED_CLEAN, $service->run($actor, ['item_ids' => [$item->id]])->status);
     }
 

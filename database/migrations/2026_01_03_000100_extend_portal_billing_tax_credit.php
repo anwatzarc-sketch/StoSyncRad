@@ -1,9 +1,8 @@
 <?php
 
-use App\Support\Database\Pg;
+use App\Support\Database\Ddl;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -20,18 +19,18 @@ return new class extends Migration
         });
 
         Schema::create('tax_rates', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->string('code', 40)->unique();
             $t->string('name', 120);
             $t->decimal('rate', 8, 4);
             $t->boolean('is_default')->default(false);
             $t->boolean('is_active')->default(true);
             $t->text('description')->nullable();
-            Pg::actorColumns($t);
-            Pg::timestamps($t);
+            Ddl::actorColumns($t);
+            Ddl::timestamps($t);
         });
-        Pg::check('tax_rates', 'chk_tax_rates_rate', 'rate >= 0 AND rate <= 100');
-        DB::statement('CREATE UNIQUE INDEX tax_rates_single_default_uq ON tax_rates (is_default) WHERE is_default');
+        Ddl::check('tax_rates', 'chk_tax_rates_rate', 'rate >= 0 AND rate <= 100');
+        Ddl::uniqueExpression('tax_rates', 'tax_rates_single_default_uq', 'CASE WHEN is_default THEN 1 END');
 
         Schema::table('items', function (Blueprint $t) {
             $t->uuid('tax_rate_id')->nullable();
@@ -44,18 +43,18 @@ return new class extends Migration
         });
 
         // Several invoices per order (partial / per-shipment invoicing); quantities are checked by the service.
-        DB::statement('DROP INDEX IF EXISTS invoices_sales_order_live_uq');
         Schema::table('invoices', function (Blueprint $t) {
             $t->uuid('shipment_id')->nullable();
             $t->foreign('shipment_id')->references('id')->on('shipments')->restrictOnDelete();
             $t->index('sales_order_id');
         });
-        DB::statement("CREATE UNIQUE INDEX invoices_shipment_live_uq ON invoices (shipment_id) WHERE shipment_id IS NOT NULL AND status <> 'void'");
+        Ddl::dropIndexIfExists('invoices', 'invoices_sales_order_live_uq');
+        Ddl::uniqueExpression('invoices', 'invoices_shipment_live_uq', "CASE WHEN shipment_id IS NOT NULL AND status <> 'void' THEN shipment_id END");
 
         Schema::table('partners', function (Blueprint $t) {
             $t->decimal('credit_limit', 20, 4)->nullable();
         });
-        Pg::check('partners', 'chk_partners_credit_limit', 'credit_limit IS NULL OR credit_limit >= 0');
+        Ddl::check('partners', 'chk_partners_credit_limit', 'credit_limit IS NULL OR credit_limit >= 0');
 
         Schema::table('sales_orders', function (Blueprint $t) {
             $t->uuid('credit_override_by')->nullable();
@@ -66,9 +65,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('sales_orders', fn (Blueprint $t) => $t->dropColumn(['credit_override_by', 'credit_override_reason']));
-        DB::statement('ALTER TABLE partners DROP CONSTRAINT IF EXISTS chk_partners_credit_limit');
+        Ddl::dropCheckIfExists('partners', 'chk_partners_credit_limit');
         Schema::table('partners', fn (Blueprint $t) => $t->dropColumn('credit_limit'));
-        DB::statement('DROP INDEX IF EXISTS invoices_shipment_live_uq');
+        Ddl::dropIndexIfExists('invoices', 'invoices_shipment_live_uq');
         Schema::table('invoices', function (Blueprint $t) {
             $t->dropForeign(['shipment_id']);
             $t->dropIndex(['sales_order_id']);

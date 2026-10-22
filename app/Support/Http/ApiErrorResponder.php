@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Support\Http;
 
+use App\Support\Database\SqlError;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Validation\ValidationErrorCode;
-use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use PDOException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
@@ -88,7 +90,8 @@ final class ApiErrorResponder
             return [ErrorCode::RATE_LIMITED, 'Too many requests.', [], 'Wait and retry after the indicated period.', []];
         }
 
-        if ($e instanceof QueryException) {
+        // QueryException, and the DeadlockException (a PDOException) Laravel raises for nested deadlocks.
+        if ($e instanceof QueryException || ($e instanceof PDOException && SqlError::errno($e) !== null)) {
             return $this->classifyQuery($e);
         }
 
@@ -112,26 +115,23 @@ final class ApiErrorResponder
     }
 
     /** @return array{0: ErrorCode, 1: string, 2: array<string,mixed>, 3: ?string, 4: array<int, array<string,mixed>>} */
-    private function classifyQuery(QueryException $e): array
+    private function classifyQuery(Throwable $e): array
     {
-        $sqlState = (string) ($e->errorInfo[0] ?? $e->getCode());
+        $constraint = ['constraint' => SqlError::constraintName($e)];
 
-        return match ($sqlState) {
-            '55P03' => [ErrorCode::LOCK_TIMEOUT, 'The record is locked by another operation.', [], 'Retry shortly with the same Idempotency-Key.', []],
-            '23505' => [ErrorCode::DUPLICATE_RESOURCE, 'A record with the same unique identity already exists.', ['constraint' => $this->constraintName($e)], null, []],
-            '23514' => [ErrorCode::CONSTRAINT_VIOLATION, 'The request violates a data integrity rule.', ['constraint' => $this->constraintName($e)], null, []],
-            '23503' => [ErrorCode::VALIDATION_FAILED, 'The request references a record that does not exist.', ['constraint' => $this->constraintName($e)], null, []],
-            '57014' => [ErrorCode::OPERATION_TIMEOUT, 'The operation exceeded its time limit and was cancelled.', [], 'Narrow the request or retry with the same Idempotency-Key.', []],
-            'P0001' => str_contains($e->getMessage(), 'APPEND_ONLY_VIOLATION')
+        return match (SqlError::errno($e)) {
+            SqlError::LOCK_WAIT_TIMEOUT, SqlError::LOCK_NOWAIT => [ErrorCode::LOCK_TIMEOUT, 'The record is locked by another operation.', [], 'Retry shortly with the same Idempotency-Key.', []],
+            SqlError::DEADLOCK => [ErrorCode::CONCURRENCY_RETRIES_EXHAUSTED, 'The operation conflicted with a concurrent one.', [], 'Retry with the same Idempotency-Key.', []],
+            SqlError::DUPLICATE_KEY => [ErrorCode::DUPLICATE_RESOURCE, 'A record with the same unique identity already exists.', $constraint, null, []],
+            SqlError::CHECK_VIOLATION => [ErrorCode::CONSTRAINT_VIOLATION, 'The request violates a data integrity rule.', $constraint, null, []],
+            SqlError::REFERENCED_ROW_MISSING => [ErrorCode::VALIDATION_FAILED, 'The request references a record that does not exist.', $constraint, null, []],
+            SqlError::ROW_IS_REFERENCED => [ErrorCode::VALIDATION_FAILED, 'The record is still referenced by other records.', $constraint, null, []],
+            SqlError::STATEMENT_TIMEOUT, SqlError::QUERY_INTERRUPTED => [ErrorCode::OPERATION_TIMEOUT, 'The operation exceeded its time limit and was cancelled.', [], 'Narrow the request or retry with the same Idempotency-Key.', []],
+            SqlError::SIGNAL => SqlError::isAppendOnlyViolation($e)
                 ? [ErrorCode::CONSTRAINT_VIOLATION, 'Append-only records cannot be modified.', [], null, []]
                 : [ErrorCode::INTERNAL_ERROR, 'A database rule rejected the operation.', [], null, []],
             default => [ErrorCode::INTERNAL_ERROR, 'A database error occurred. Quote the correlation id when reporting it.', [], null, []],
         };
-    }
-
-    private function constraintName(QueryException $e): ?string
-    {
-        return preg_match('/constraint "([^"]+)"/', $e->getMessage(), $m) ? $m[1] : null;
     }
 
     /** @return array<int, array<string, mixed>> */

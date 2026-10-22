@@ -12,7 +12,6 @@ use App\Domains\ReportingEngine\Datasets\PlanningDatasets;
 use App\Domains\ReportingEngine\Datasets\ProcurementDatasets;
 use App\Domains\ReportingEngine\Datasets\StocktakingDatasets;
 use App\Domains\ReportingEngine\Datasets\TransferDatasets;
-use App\Support\Database\Pg;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Illuminate\Support\Facades\DB;
@@ -63,27 +62,37 @@ final class DatasetCatalog
         return isset($this->all()[$code]);
     }
 
-    /** (Re)create every view; run by migrations and `platform:upgrade` under the deployment role. */
+    /**
+     * (Re)create every view; run by migrations and `platform:upgrade` under the deployment account.
+     * Views live in the reporting database, while their unqualified table names resolve against the
+     * connection's own (application) database when the view is created. SQL SECURITY DEFINER lets the
+     * reporting account, which holds SELECT on the reporting database only, read through them; the
+     * database-level grant (database/mysql/setup.sql) covers new views automatically.
+     */
     public function installViews(?string $connection = null): int
     {
         $db = DB::connection($connection);
-        $db->statement('CREATE SCHEMA IF NOT EXISTS reporting');
         foreach ($this->all() as $d) {
-            $db->statement("DROP VIEW IF EXISTS {$d->view()} CASCADE");
-            $db->statement("CREATE VIEW {$d->view()} WITH (security_barrier = true) AS {$d->sql}");
-            $db->statement("GRANT SELECT ON {$d->view()} TO ".Pg::reportingRole());
-            $db->statement("COMMENT ON VIEW {$d->view()} IS ".$db->getPdo()->quote($d->label));
+            $db->statement("CREATE OR REPLACE SQL SECURITY DEFINER VIEW {$d->view()} AS {$d->sql}");
         }
 
         return count($this->all());
+    }
+
+    public function dropViews(?string $connection = null): void
+    {
+        $db = DB::connection($connection);
+        foreach ($this->all() as $d) {
+            $db->statement("DROP VIEW IF EXISTS {$d->view()}");
+        }
     }
 
     /** Verify every declared field exists in its view (catches drift between code and SQL). */
     public function verify(?string $connection = null): array
     {
         $problems = [];
-        $columns = DB::connection($connection)->table('information_schema.columns')->where('table_schema', 'reporting')
-            ->get(['table_name', 'column_name'])->groupBy('table_name')->map(fn ($c) => $c->pluck('column_name')->all());
+        $columns = DB::connection($connection)->table('information_schema.COLUMNS')->where('TABLE_SCHEMA', DatasetDefinition::reportingDatabase())
+            ->get(['TABLE_NAME as table_name', 'COLUMN_NAME as column_name'])->groupBy('table_name')->map(fn ($c) => $c->pluck('column_name')->all());
         foreach ($this->all() as $d) {
             $have = $columns[$d->code] ?? null;
             if ($have === null) {
@@ -121,7 +130,7 @@ final class DatasetCatalog
                 }
                 $changed++;
                 $id = $existing->id ?? (string) Str::uuid7();
-                $row = ['label' => $d->label, 'description' => $d->description, 'source_view' => $d->view(), 'primary_key' => $d->primaryKey,
+                $row = ['label' => $d->label, 'description' => $d->description, 'source_view' => $d->sourceName(), 'primary_key' => $d->primaryKey,
                     'warehouse_scope_column' => $d->warehouseScope === [] ? null : implode(',', $d->warehouseScope), 'branch_scope_column' => $d->branchScope,
                     'own_records_column' => $d->ownColumn, 'classification' => $d->classification->value, 'required_permission' => $d->permission,
                     'feature_flag' => $d->feature, 'default_sort' => json_encode($d->defaultSort), 'module' => $d->module, 'is_active' => true,

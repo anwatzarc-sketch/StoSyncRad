@@ -9,6 +9,7 @@ use App\Domains\Platform\Seeds\SeedRunner;
 use App\Domains\Platform\Services\SetupState;
 use App\Domains\ReportingEngine\Catalog\DatasetCatalog;
 use App\Domains\ReportingEngine\Services\ReportingSetup;
+use App\Support\Database\RuntimeGrants;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
 
@@ -23,7 +24,7 @@ final class PlatformUpgradeCommand extends Command
 
     protected $description = 'Apply this release\'s permissions, reporting catalog and additive seeds.';
 
-    public function handle(PermissionSyncer $permissions, DatasetCatalog $catalog, ReportingSetup $reporting, SeedRunner $seeds, SetupState $setup): int
+    public function handle(PermissionSyncer $permissions, DatasetCatalog $catalog, ReportingSetup $reporting, SeedRunner $seeds, SetupState $setup, RuntimeGrants $grants): int
     {
         $result = $permissions->sync();
         $this->line('✓ Permissions synced '.json_encode($result));
@@ -35,7 +36,9 @@ final class PlatformUpgradeCommand extends Command
         }
         $this->line('✓ Configuration registry valid');
 
-        $views = $catalog->installViews('pgsql_deploy');
+        $views = $catalog->installViews('mysql_deploy');
+        $tables = $grants->sync('mysql_deploy');
+        $this->line("✓ Runtime account grants synced ($tables tables)");
         $synced = $reporting->syncDatasets();
         $this->line("✓ Reporting views installed ($views); datasets synced ".json_encode($synced));
 
@@ -60,11 +63,11 @@ final class PlatformUpgradeCommand extends Command
 
         $probe = $reporting->probeReadOnly();
         if (! ($probe['read_only'] ?? false)) {
-            $this->error('Reporting role is not read-only: '.json_encode($probe));
+            $this->error('Reporting account is not read-only: '.json_encode($probe));
 
             return self::FAILURE;
         }
-        $this->line('✓ Reporting role read-only');
+        $this->line('✓ Reporting account read-only');
         $this->info('Upgrade complete. Next: config/route/view/event cache, queue:restart, platform:health --strict.');
 
         return self::SUCCESS;

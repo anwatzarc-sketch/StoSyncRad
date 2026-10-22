@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Domains\Platform\Services;
 
 use App\Domains\Platform\Config\PlatformConfig;
+use App\Support\Database\AppendOnlyTables;
+use App\Support\Database\Ddl;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -17,11 +19,6 @@ use Throwable;
 final class PlatformHealth
 {
     public const HEARTBEAT_KEY = 'platform.scheduler.heartbeat';
-
-    /** Ledger, audit and history tables that must refuse UPDATE/DELETE. */
-    public const APPEND_ONLY_TABLES = ['stock_movements', 'stock_movement_lines', 'audit_events', 'security_events', 'approval_records',
-        'configuration_entry_versions', 'valuation_layer_consumptions', 'valuation_variances', 'landed_cost_allocations', 'report_definition_versions',
-        'template_versions', 'shipment_events', 'purchase_order_revisions', 'transfer_discrepancy_resolutions', 'item_category_moves'];
 
     public function __construct(
         private readonly Preflight $preflight,
@@ -76,14 +73,25 @@ final class PlatformHealth
 
     private function appendOnly(): array
     {
-        $present = collect(DB::select("SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE t.tgname LIKE 'trg_%_append_only' AND NOT t.tgisinternal"))
-            ->pluck('relname')->all();
-        $missing = array_values(array_diff(self::APPEND_ONLY_TABLES, $present));
+        // Every append-only table needs both its BEFORE UPDATE and BEFORE DELETE trigger. MySQL shows
+        // trigger metadata only to accounts holding the TRIGGER privilege, which the runtime account must
+        // not have, so it is read through the deployment connection.
+        if (! config('database.connections.mysql_deploy.username')) {
+            return ['check' => 'append_only', 'status' => 'warn', 'message' => 'Append-only triggers cannot be verified without the deployment account.',
+                'remediation' => 'Set DB_DEPLOY_USERNAME / DB_DEPLOY_PASSWORD where platform:health runs.'];
+        }
+        $deploy = DB::connection('mysql_deploy');
+        $triggers = $deploy->table('information_schema.TRIGGERS')->where('TRIGGER_SCHEMA', $deploy->getDatabaseName())
+            ->get(['EVENT_OBJECT_TABLE as table_name', 'TRIGGER_NAME as name'])->map(fn ($t) => $t->table_name.'|'.$t->name)->all();
+        $deploy->disconnect();
+        $missing = array_values(array_filter(AppendOnlyTables::names(), fn (string $table) => ! in_array($table.'|'.Ddl::identifier("trg_{$table}_append_only_upd"), $triggers, true)
+            || ! in_array($table.'|'.Ddl::identifier("trg_{$table}_append_only_del"), $triggers, true)));
+        $count = count(AppendOnlyTables::names());
 
         return $missing === []
-            ? ['check' => 'append_only', 'status' => 'pass', 'message' => count(self::APPEND_ONLY_TABLES).' ledger/audit tables refuse updates and deletes.']
+            ? ['check' => 'append_only', 'status' => 'pass', 'message' => "$count ledger/audit tables refuse updates and deletes."]
             : ['check' => 'append_only', 'status' => 'fail', 'message' => 'Append-only protection missing on: '.implode(', ', $missing).'.',
-                'remediation' => 'Run php artisan migrate --database=pgsql_deploy --force and php artisan platform:upgrade.'];
+                'remediation' => 'Run php artisan migrate --database=mysql_deploy --force and php artisan platform:upgrade.'];
     }
 
     private function scheduler(): array

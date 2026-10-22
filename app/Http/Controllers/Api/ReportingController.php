@@ -14,6 +14,7 @@ use App\Domains\ReportingEngine\Models\ReportDefinition;
 use App\Domains\ReportingEngine\Models\ReportRun;
 use App\Domains\ReportingEngine\Services\ReportDefinitionService;
 use App\Domains\ReportingEngine\Services\ReportRunner;
+use App\Support\Database\Search;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Illuminate\Http\JsonResponse;
@@ -64,7 +65,7 @@ final class ReportingController extends ApiController
             ->when($request->filled('dataset'), fn ($q) => $q->where('dataset_code', (string) $request->query('dataset')))
             ->when($request->query('scope') === 'mine', fn ($q) => $q->where('owner_account_id', $actor->id))
             ->when($request->query('scope') === 'system', fn ($q) => $q->where('is_system_seed', true))
-            ->when($request->filled('q'), fn ($q) => $q->where('name', 'ILIKE', '%'.str_replace(['%', '_'], ['\\%', '\\_'], (string) $request->query('q')).'%'))
+            ->when($request->filled('q'), fn ($q) => $q->whereRaw(Search::like('name'), ['%'.str_replace(['%', '_'], ['\\%', '\\_'], (string) $request->query('q')).'%']))
             ->orderByDesc('is_system_seed')->orderBy('name');
 
         return response()->json(['data' => $this->presenter()->collection($query->limit(500)->get())]);

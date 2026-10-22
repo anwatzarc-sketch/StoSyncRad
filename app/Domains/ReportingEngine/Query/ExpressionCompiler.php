@@ -85,7 +85,18 @@ final class ExpressionCompiler
             $arg = $this->compile($rawArgs[1], $field, $params, $bindings, $depth + 1);
             $this->expect($arg, ['date', 'datetime'], $fn);
 
-            return ['sql' => "date_trunc('$unit', {$arg['sql']})::date", 'type' => 'date'];
+            $x = $arg['sql'];
+
+            return ['sql' => match ($unit) {   // first day of the period; weeks start on Monday (ISO)
+                'day' => "DATE($x)",
+                'week' => "(DATE($x) - INTERVAL WEEKDAY($x) DAY)",
+                'month' => "CAST(DATE_FORMAT($x, '%Y-%m-01') AS DATE)",
+                'quarter' => "(MAKEDATE(YEAR($x), 1) + INTERVAL (QUARTER($x) - 1) QUARTER)",
+                default => "MAKEDATE(YEAR($x), 1)",
+            }, 'type' => 'date'];
+        }
+        if ($fn === 'greatest' || $fn === 'least') {
+            return $this->nullSkipping($fn, $rawArgs, $field, $params, $bindings, $depth);
         }
         $args = array_map(fn ($a) => $this->compile($a, $field, $params, $bindings, $depth + 1), $rawArgs);
         $s = array_column($args, 'sql');
@@ -124,8 +135,6 @@ final class ExpressionCompiler
             'neg' => "(-{$s[0]})",
             'abs' => "abs({$s[0]})",
             'round' => 'round('.$s[0].', '.(isset($rawArgs[1]['value']) ? max(0, min(8, (int) $rawArgs[1]['value'])) : 2).')',
-            'greatest' => 'greatest('.implode(', ', $s).')',
-            'least' => 'least('.implode(', ', $s).')',
             'percent' => "round(100.0 * {$s[0]} / NULLIF({$s[1]}, 0), 2)",
             'coalesce' => 'coalesce('.implode(', ', $s).')',
             'eq' => "({$s[0]} = {$s[1]})", 'neq' => "({$s[0]} <> {$s[1]})", 'gt' => "({$s[0]} > {$s[1]})", 'gte' => "({$s[0]} >= {$s[1]})",
@@ -133,10 +142,11 @@ final class ExpressionCompiler
             'and' => '('.implode(' AND ', $s).')', 'or' => '('.implode(' OR ', $s).')', 'not' => "(NOT {$s[0]})",
             'is_null' => "({$s[0]} IS NULL)",
             'case' => $this->caseSql($args, $fn),
-            'lower' => "lower({$s[0]})", 'upper' => "upper({$s[0]})", 'length' => "length({$s[0]})",
-            'concat' => 'concat('.implode(', ', array_map(fn ($x) => "($x)::text", $s)).')',
-            'days_between' => "(({$s[1]})::date - ({$s[0]})::date)",
-            'year' => "extract(year from {$s[0]})::int", 'month' => "extract(month from {$s[0]})::int",
+            'lower' => "lower({$s[0]})", 'upper' => "upper({$s[0]})", 'length' => "CHAR_LENGTH({$s[0]})",
+            // CONCAT_WS skips NULL arguments, as the reporting grammar's concat always has.
+            'concat' => "CONCAT_WS('', ".implode(', ', array_map(fn ($x) => "CAST($x AS CHAR)", $s)).')',
+            'days_between' => "DATEDIFF({$s[1]}, {$s[0]})",
+            'year' => "YEAR({$s[0]})", 'month' => "MONTH({$s[0]})",
             'today' => 'CURRENT_DATE',
         };
         $type = match ($result) {
@@ -148,6 +158,39 @@ final class ExpressionCompiler
         }
 
         return ['sql' => $sql, 'type' => $type];
+    }
+
+    /**
+     * greatest/least ignoring NULL arguments (MySQL's GREATEST/LEAST return NULL when any argument is
+     * NULL). Each argument falls back to the others — COALESCE(a, b, c), COALESCE(b, a, c), … — so a
+     * NULL never decides the result, which is NULL only when every argument is. Arguments are compiled
+     * separately so each repeated copy gets its own bound values, in placeholder order.
+     *
+     * @param  array<int, mixed>  $rawArgs
+     * @param  array<string, mixed>  $params
+     * @param  array<int, mixed>  $bindings
+     * @return array{sql: string, type: string}
+     */
+    private function nullSkipping(string $fn, array $rawArgs, callable $field, array $params, array &$bindings, int $depth): array
+    {
+        $parts = [];
+        foreach ($rawArgs as $raw) {
+            $own = [];
+            $arg = $this->compile($raw, $field, $params, $own, $depth + 1);
+            $this->expect($arg, self::NUMERIC, $fn);
+            $parts[] = ['arg' => $arg, 'bindings' => $own];
+        }
+        $pieces = [];
+        foreach (array_keys($parts) as $i) {
+            $order = array_merge([$i], array_values(array_diff(array_keys($parts), [$i])));
+            $pieces[] = 'COALESCE('.implode(', ', array_map(fn (int $j) => $parts[$j]['arg']['sql'], $order)).')';
+            foreach ($order as $j) {
+                array_push($bindings, ...$parts[$j]['bindings']);
+            }
+        }
+        $types = array_unique(array_map(fn (array $p) => $p['arg']['type'], $parts));
+
+        return ['sql' => $fn.'('.implode(', ', $pieces).')', 'type' => count($types) === 1 ? $parts[0]['arg']['type'] : 'decimal'];
     }
 
     /** @param  array<int, array{sql: string, type: string}>  $args */
@@ -174,22 +217,23 @@ final class ExpressionCompiler
         if (is_bool($value)) {
             $bindings[] = $value;
 
-            return ['sql' => '?::boolean', 'type' => 'boolean'];
+            return ['sql' => '(? = 1)', 'type' => 'boolean'];
         }
         if (is_int($value) || is_float($value) || (is_string($value) && preg_match('/^-?\d{1,14}(\.\d{1,8})?$/', $value))) {
             $bindings[] = (string) $value;
 
-            return ['sql' => '?::numeric', 'type' => 'decimal'];
+            // Exact decimal: a bare string operand would make MySQL compute in double precision.
+            return ['sql' => 'CAST(? AS DECIMAL(22,8))', 'type' => 'decimal'];
         }
         if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
             $bindings[] = $value;
 
-            return ['sql' => '?::date', 'type' => 'date'];
+            return ['sql' => 'CAST(? AS DATE)', 'type' => 'date'];
         }
         if (is_string($value) && mb_strlen($value) <= 500) {
             $bindings[] = $value;
 
-            return ['sql' => '?::text', 'type' => 'string'];
+            return ['sql' => '?', 'type' => 'string'];
         }
         if ($value === null) {
             return ['sql' => 'NULL', 'type' => 'any'];

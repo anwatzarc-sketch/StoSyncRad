@@ -56,22 +56,29 @@ final class DocumentNumberAllocator
                 SequenceResetPolicy::NEVER => '*',
             };
 
-            // Upsert the concrete counter row, then increment it atomically.
-            $db->statement(
-                'INSERT INTO document_sequences (id, document_type, scope, scope_id, period_key, prefix, pattern, reset_policy, next_number, sequence_padding, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
-                 ON CONFLICT (document_type, scope, scope_id, period_key) DO NOTHING',
-                [(string) Str::uuid7(), $type->value, $scope->value, $scopeId, $periodKey, $prefix, $pattern, $reset->value,
-                    (int) ($template->next_number ?? 1), $padding]
+            // Increment the concrete counter row atomically, creating it on first use.
+            // LAST_INSERT_ID(expr) remembers the pre-increment value for this connection only.
+            $increment = fn (): int => $db->update(
+                'UPDATE document_sequences SET next_number = LAST_INSERT_ID(next_number) + 1, updated_at = ?
+                  WHERE document_type = ? AND scope = ? AND period_key = ? AND scope_id = ?',
+                [now(), $type->value, $scope->value, $periodKey, $scopeId]
             );
-            $row = $db->selectOne(
-                'UPDATE document_sequences SET next_number = next_number + 1, updated_at = now()
-                  WHERE document_type = ? AND scope = ? AND period_key = ? AND scope_id = ?
-              RETURNING next_number - 1 AS allocated',
-                [$type->value, $scope->value, $periodKey, $scopeId]
-            );
+            if (($updated = $increment()) === 0) {
+                $db->insert(
+                    'INSERT INTO document_sequences (id, document_type, scope, scope_id, period_key, prefix, pattern, reset_policy, next_number, sequence_padding, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id',
+                    [(string) Str::uuid7(), $type->value, $scope->value, $scopeId, $periodKey, $prefix, $pattern, $reset->value,
+                        (int) ($template->next_number ?? 1), $padding, now(), now()]
+                );
+                $updated = $increment();
+            }
+            // Required: without exactly one updated row LAST_INSERT_ID() would return a stale number.
+            if ($updated !== 1) {
+                throw new \LogicException("Document sequence for {$type->value} was not incremented.");
+            }
+            $allocated = (int) $db->selectOne('SELECT LAST_INSERT_ID() AS allocated')->allocated;
 
-            return $this->format($pattern, $prefix, (int) $row->allocated, $padding, $date, $context);
+            return $this->format($pattern, $prefix, $allocated, $padding, $date, $context);
         });
     }
 

@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Base test case. The PostgreSQL test schema is (re)built once per PHP process with the
- * deployment role; each test then runs inside a transaction on the runtime connection that is
+ * Base test case. The MySQL test schema is (re)built once per PHP process with the
+ * deployment account; each test then runs inside a transaction on the runtime connection that is
  * rolled back afterwards.
  */
 abstract class TestCase extends BaseTestCase
@@ -23,7 +23,7 @@ abstract class TestCase extends BaseTestCase
     }
 
     /** @var array<int, string> */
-    protected $connectionsToTransact = ['pgsql'];
+    protected $connectionsToTransact = ['mysql'];
 
     private static bool $migrated = false;
 
@@ -55,8 +55,8 @@ abstract class TestCase extends BaseTestCase
         if (self::$migrated) {
             return;
         }
-        Artisan::call('migrate:fresh', ['--database' => 'pgsql_deploy', '--force' => true]);
-        DB::connection('pgsql_deploy')->disconnect();
+        Artisan::call('migrate:fresh', ['--database' => 'mysql_deploy', '--force' => true]);
+        DB::connection('mysql_deploy')->disconnect();
         self::$migrated = true;
     }
 }

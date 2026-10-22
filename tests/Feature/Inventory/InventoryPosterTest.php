@@ -11,18 +11,22 @@ use App\Domains\Inventory\Enums\MovementType;
 use App\Domains\Inventory\Enums\ReservationReferenceType;
 use App\Domains\Inventory\Enums\SerialStatus;
 use App\Domains\Inventory\Enums\StockCondition;
-use App\Domains\Inventory\Models\ItemSerial;
 use App\Domains\Inventory\Models\StockMovement;
+use App\Domains\Inventory\Posting\InventoryPoster;
 use App\Domains\Inventory\Posting\MovementLine;
+use App\Domains\Inventory\Posting\MovementRequest;
 use App\Domains\Inventory\Posting\PositionKey;
 use App\Domains\Inventory\Services\InventoryLocationResolver;
 use App\Domains\Inventory\Services\LotService;
 use App\Domains\Inventory\Services\ReservationService;
 use App\Domains\Organization\Enums\DocumentType;
 use App\Domains\Organization\Enums\InventoryLocationType;
+use App\Support\Database\SqlError;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
-use App\Support\Sentinel;
+use App\Support\Transactions\PostingContext;
+use App\Support\Transactions\PostingOutcome;
+use App\Support\Transactions\PostingPipeline;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -231,21 +235,18 @@ final class InventoryPosterTest extends TestCase
         $this->receive($item, $wh, '1');
         $lineId = DB::table('stock_movement_lines')->where('item_id', $item->id)->value('id');
 
+        // MySQL refuses these before executing them (no privilege), so the surrounding transaction is unaffected.
         try {
-            DB::statement('SAVEPOINT probe');
             DB::table('stock_movement_lines')->where('id', $lineId)->update(['quantity' => '999']);
             $this->fail('Expected the ledger update to be rejected');
         } catch (QueryException $e) {
-            DB::statement('ROLLBACK TO SAVEPOINT probe');
-            $this->assertSame('42501', $e->errorInfo[0], 'runtime role must lack UPDATE on ledger quantity');
+            $this->assertSame(SqlError::COLUMN_ACCESS_DENIED, $e->errorInfo[1], 'runtime account must lack UPDATE on ledger quantity');
         }
         try {
-            DB::statement('SAVEPOINT probe2');
             DB::table('stock_movement_lines')->where('id', $lineId)->delete();
             $this->fail('Expected the ledger delete to be rejected');
         } catch (QueryException $e) {
-            DB::statement('ROLLBACK TO SAVEPOINT probe2');
-            $this->assertSame('42501', $e->errorInfo[0]);
+            $this->assertSame(SqlError::TABLE_ACCESS_DENIED, $e->errorInfo[1], 'runtime account must lack DELETE on the ledger');
         }
         $this->assertSame('1.000000', DB::table('stock_movement_lines')->where('id', $lineId)->value('quantity'));
     }
@@ -289,13 +290,13 @@ final class InventoryPosterTest extends TestCase
     /** @param  array<int, MovementLine>  $lines */
     private function postWithFixedDocument(string $key, $wh, array $lines, string $docRef)
     {
-        return app(\App\Support\Transactions\PostingPipeline::class)->run(null, 'test.issue', $key, ['doc' => $docRef],
-            function (\App\Support\Transactions\PostingContext $ctx) use ($wh, $lines) {
+        return app(PostingPipeline::class)->run(null, 'test.issue', $key, ['doc' => $docRef],
+            function (PostingContext $ctx) use ($wh, $lines) {
                 $docId = (string) Str::uuid7();
-                $m = app(\App\Domains\Inventory\Posting\InventoryPoster::class)->post(new \App\Domains\Inventory\Posting\MovementRequest(
+                $m = app(InventoryPoster::class)->post(new MovementRequest(
                     MovementType::ISSUE, DocumentType::STOCK_ISSUE, $docId, 'T', $docId, $lines, warehouseId: $wh->id), $ctx);
 
-                return new \App\Support\Transactions\PostingOutcome(['movement_id' => $m->id], 201);
+                return new PostingOutcome(['movement_id' => $m->id], 201);
             });
     }
 

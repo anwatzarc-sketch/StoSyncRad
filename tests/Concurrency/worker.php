@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Concurrency test worker: boots the application in its own process (own PostgreSQL session),
+ * Concurrency test worker: boots the application in its own process (own MySQL session),
  * waits for a shared start instant, performs one posting and prints a JSON result.
  *
  * Usage: php worker.php '<json>'
@@ -25,16 +25,18 @@ use App\Support\Exceptions\DomainException;
 use App\Support\Transactions\PostingContext;
 use App\Support\Transactions\PostingOutcome;
 use App\Support\Transactions\PostingPipeline;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 require __DIR__.'/../../vendor/autoload.php';
 $app = require __DIR__.'/../../bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$app->make(Kernel::class)->bootstrap();
 
 $args = json_decode($argv[1], true, 512, JSON_THROW_ON_ERROR);
 
 // Establish the DB session before the barrier so both workers race on the posting itself.
-Illuminate\Support\Facades\DB::select('select 1');
+DB::select('select 1');
 while (microtime(true) < (float) $args['start_at']) {
     usleep(500);
 }

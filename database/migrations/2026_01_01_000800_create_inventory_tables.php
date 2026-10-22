@@ -19,7 +19,7 @@ use App\Domains\Inventory\Enums\SerialStatus;
 use App\Domains\Inventory\Enums\StockCondition;
 use App\Domains\Inventory\Enums\ValuationLayerStatus;
 use App\Domains\Organization\Enums\DocumentType;
-use App\Support\Database\Pg;
+use App\Support\Database\Ddl;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -27,13 +27,13 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    private const SENTINEL = "'00000000-0000-7000-8000-000000000000'::uuid";
+    private const SENTINEL = "'00000000-0000-7000-8000-000000000000'";
 
     public function up(): void
     {
         // ---------------- Lots & serials ----------------
         Schema::create('inventory_lots', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('item_id');
             $t->uuid('item_variant_id')->nullable();
             $t->string('lot_number', 80);
@@ -46,16 +46,16 @@ return new class extends Migration
             $t->date('alert_date')->nullable();
             $t->string('origin_document_type', 64)->nullable();
             $t->uuid('origin_document_id')->nullable();
-            Pg::enumColumn($t, 'qc_status', default: LotQcStatus::PENDING->value);
+            Ddl::enumColumn($t, 'qc_status', default: LotQcStatus::PENDING->value);
             $t->uuid('qc_released_by')->nullable();
-            $t->timestampTz('qc_released_at')->nullable();
-            Pg::enumColumn($t, 'lock_status', default: LotLockStatus::UNLOCKED->value);
+            $t->dateTime('qc_released_at', 6)->nullable();
+            Ddl::enumColumn($t, 'lock_status', default: LotLockStatus::UNLOCKED->value);
             $t->string('lock_reference_type', 64)->nullable();
             $t->uuid('lock_reference_id')->nullable();
-            Pg::enumColumn($t, 'status', default: LotStatus::ACTIVE->value);
-            $t->jsonb('attributes')->nullable();
-            Pg::actorColumns($t);
-            Pg::timestamps($t);
+            Ddl::enumColumn($t, 'status', default: LotStatus::ACTIVE->value);
+            $t->json('attributes')->nullable();
+            Ddl::actorColumns($t);
+            Ddl::timestamps($t);
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->foreign('item_variant_id')->references('id')->on('item_variants')->restrictOnDelete();
             $t->foreign('supplier_id')->references('id')->on('partners')->restrictOnDelete();
@@ -63,28 +63,28 @@ return new class extends Migration
             $t->index('lock_status');
             $t->index('lot_number');
         });
-        Pg::enumCheck('inventory_lots', 'qc_status', LotQcStatus::class);
-        Pg::enumCheck('inventory_lots', 'lock_status', LotLockStatus::class);
-        Pg::enumCheck('inventory_lots', 'status', LotStatus::class);
-        Pg::check('inventory_lots', 'chk_inventory_lots_dates', 'manufacture_date IS NULL OR expiry_date IS NULL OR manufacture_date <= expiry_date');
+        Ddl::enumCheck('inventory_lots', 'qc_status', LotQcStatus::class);
+        Ddl::enumCheck('inventory_lots', 'lock_status', LotLockStatus::class);
+        Ddl::enumCheck('inventory_lots', 'status', LotStatus::class);
+        Ddl::check('inventory_lots', 'chk_inventory_lots_dates', 'manufacture_date IS NULL OR expiry_date IS NULL OR manufacture_date <= expiry_date');
         // Default uniqueness: (item, lot_number). The item_supplier scope is enforced by the action
         // (the narrower DB index would reject legitimate same-number lots from different suppliers).
-        DB::statement('CREATE UNIQUE INDEX inventory_lots_item_supplier_number_uq ON inventory_lots (item_id, COALESCE(supplier_id, '.self::SENTINEL.'), lot_number)');
+        Ddl::uniqueIndex('inventory_lots', 'inventory_lots_item_supplier_number_uq', 'item_id, (COALESCE(supplier_id, '.self::SENTINEL.')), lot_number');
 
         Schema::create('item_serials', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('item_id');
             $t->uuid('item_variant_id')->nullable();
             $t->string('serial_number', 120);
             $t->uuid('inventory_lot_id')->nullable();
-            Pg::enumColumn($t, 'lifecycle_status', default: SerialStatus::REGISTERED->value);
+            Ddl::enumColumn($t, 'lifecycle_status', default: SerialStatus::REGISTERED->value);
             $t->uuid('current_inventory_location_id')->nullable();
-            Pg::enumColumn($t, 'current_condition', nullable: true);
+            Ddl::enumColumn($t, 'current_condition', nullable: true);
             $t->uuid('current_warehouse_id')->nullable();
             $t->date('warranty_until')->nullable();
-            $t->jsonb('attributes')->nullable();
-            $t->unsignedInteger('version')->default(1);
-            Pg::timestamps($t);
+            $t->json('attributes')->nullable();
+            $t->integer('version')->default(1);
+            Ddl::timestamps($t);
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->foreign('inventory_lot_id')->references('id')->on('inventory_lots')->restrictOnDelete();
             $t->foreign('current_inventory_location_id')->references('id')->on('inventory_locations')->restrictOnDelete();
@@ -92,22 +92,22 @@ return new class extends Migration
             $t->index('serial_number');
             $t->index('current_inventory_location_id');
         });
-        Pg::enumCheck('item_serials', 'lifecycle_status', SerialStatus::class);
-        Pg::enumCheck('item_serials', 'current_condition', StockCondition::class);
+        Ddl::enumCheck('item_serials', 'lifecycle_status', SerialStatus::class);
+        Ddl::enumCheck('item_serials', 'current_condition', StockCondition::class);
 
         // ---------------- Ledger (append-only) ----------------
         Schema::create('stock_movements', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->string('movement_number', 40)->unique();
-            Pg::enumColumn($t, 'movement_type');
-            Pg::enumColumn($t, 'source_document_type');
+            Ddl::enumColumn($t, 'movement_type');
+            Ddl::enumColumn($t, 'source_document_type');
             $t->uuid('source_document_id');
             $t->string('source_document_number', 40);
             $t->uuid('posting_event_id')->unique();
             $t->uuid('idempotency_key_id')->nullable();
-            Pg::enumColumn($t, 'status', default: MovementStatus::POSTED->value);
+            Ddl::enumColumn($t, 'status', default: MovementStatus::POSTED->value);
             $t->uuid('posting_actor_id')->nullable();
-            $t->timestampTz('posted_at');
+            $t->dateTime('posted_at', 6);
             $t->date('business_date');
             $t->uuid('reversal_of_movement_id')->nullable();
             $t->uuid('reason_lookup_value_id')->nullable();
@@ -116,30 +116,29 @@ return new class extends Migration
             $t->uuid('warehouse_id')->nullable();
             $t->uuid('counterparty_warehouse_id')->nullable();
             $t->uuid('partner_id')->nullable();
-            $t->timestampTz('created_at');
-            $t->timestampTz('updated_at')->nullable();
+            $t->dateTime('created_at', 6);
+            $t->dateTime('updated_at', 6)->nullable();
             $t->foreign('reversal_of_movement_id')->references('id')->on('stock_movements')->restrictOnDelete();
             $t->index(['source_document_type', 'source_document_id']);
             $t->index('posted_at');
             $t->index(['movement_type', 'posted_at']);
             $t->index(['warehouse_id', 'posted_at']);
         });
-        Pg::enumCheck('stock_movements', 'movement_type', MovementType::class);
-        Pg::enumCheck('stock_movements', 'source_document_type', DocumentType::class);
-        Pg::enumCheck('stock_movements', 'status', MovementStatus::class);
-        Pg::appendOnly('stock_movements', ['status', 'updated_at']);
-        Pg::grantColumnUpdate('stock_movements', ['status', 'updated_at']);
+        Ddl::enumCheck('stock_movements', 'movement_type', MovementType::class);
+        Ddl::enumCheck('stock_movements', 'source_document_type', DocumentType::class);
+        Ddl::enumCheck('stock_movements', 'status', MovementStatus::class);
+        Ddl::appendOnly('stock_movements');
 
         Schema::create('stock_movement_lines', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('stock_movement_id');
-            $t->unsignedInteger('line_no');
+            $t->integer('line_no');
             $t->uuid('item_id');
             $t->uuid('item_variant_id')->nullable();
             $t->uuid('source_inventory_location_id');
             $t->uuid('destination_inventory_location_id');
-            Pg::enumColumn($t, 'source_condition');
-            Pg::enumColumn($t, 'destination_condition');
+            Ddl::enumColumn($t, 'source_condition');
+            Ddl::enumColumn($t, 'destination_condition');
             $t->uuid('inventory_lot_id')->nullable();
             $t->uuid('item_serial_id')->nullable();
             $t->decimal('quantity', 20, 6);
@@ -156,8 +155,8 @@ return new class extends Migration
             $t->uuid('destination_warehouse_id')->nullable();
             $t->uuid('reversed_by_line_id')->nullable();
             $t->decimal('reversed_quantity', 20, 6)->default(0);
-            $t->timestampTz('created_at');
-            $t->timestampTz('updated_at')->nullable();
+            $t->dateTime('created_at', 6);
+            $t->dateTime('updated_at', 6)->nullable();
             $t->foreign('stock_movement_id')->references('id')->on('stock_movements')->restrictOnDelete();
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->foreign('item_variant_id')->references('id')->on('item_variants')->restrictOnDelete();
@@ -174,25 +173,24 @@ return new class extends Migration
             $t->index('item_serial_id');
             $t->index(['source_line_type', 'source_line_id']);
         });
-        Pg::enumCheck('stock_movement_lines', 'source_condition', StockCondition::class);
-        Pg::enumCheck('stock_movement_lines', 'destination_condition', StockCondition::class);
-        Pg::check('stock_movement_lines', 'chk_sml_positive_qty', 'quantity > 0');
-        Pg::check('stock_movement_lines', 'chk_sml_serial_unit', 'item_serial_id IS NULL OR quantity = 1');
-        Pg::check('stock_movement_lines', 'chk_sml_distinct_ends',
+        Ddl::enumCheck('stock_movement_lines', 'source_condition', StockCondition::class);
+        Ddl::enumCheck('stock_movement_lines', 'destination_condition', StockCondition::class);
+        Ddl::check('stock_movement_lines', 'chk_sml_positive_qty', 'quantity > 0');
+        Ddl::check('stock_movement_lines', 'chk_sml_serial_unit', 'item_serial_id IS NULL OR quantity = 1');
+        Ddl::check('stock_movement_lines', 'chk_sml_distinct_ends',
             'source_inventory_location_id <> destination_inventory_location_id OR source_condition <> destination_condition');
-        Pg::check('stock_movement_lines', 'chk_sml_reversed_qty', 'reversed_quantity >= 0 AND reversed_quantity <= quantity');
-        Pg::check('stock_movement_lines', 'chk_sml_cost_non_negative', 'unit_cost_snapshot >= 0');
-        Pg::appendOnly('stock_movement_lines', ['reversed_by_line_id', 'reversed_quantity', 'updated_at']);
-        Pg::grantColumnUpdate('stock_movement_lines', ['reversed_by_line_id', 'reversed_quantity', 'updated_at']);
+        Ddl::check('stock_movement_lines', 'chk_sml_reversed_qty', 'reversed_quantity >= 0 AND reversed_quantity <= quantity');
+        Ddl::check('stock_movement_lines', 'chk_sml_cost_non_negative', 'unit_cost_snapshot >= 0');
+        Ddl::appendOnly('stock_movement_lines');
 
         // ---------------- Balance projection ----------------
         Schema::create('inventory_balances', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('item_id');
             $t->uuid('item_variant_id');            // sentinel when the item has no variants
             $t->uuid('inventory_location_id');
             $t->uuid('inventory_lot_id');           // sentinel when not lot-tracked
-            Pg::enumColumn($t, 'stock_condition');
+            Ddl::enumColumn($t, 'stock_condition');
             $t->uuid('owner_partner_id');           // sentinel unless consignment is enabled
             $t->uuid('package_id');                 // sentinel unless packages are enabled
             $t->uuid('warehouse_id')->nullable();   // denormalized for scoping
@@ -201,12 +199,12 @@ return new class extends Migration
             $t->decimal('unit_cost_projection', 20, 8)->default(0);
             $t->decimal('total_value_projection', 20, 4)->default(0);
             $t->boolean('allow_negative')->default(false);
-            $t->timestampTz('last_movement_at')->nullable();
-            $t->timestampTz('last_counted_at')->nullable();
+            $t->dateTime('last_movement_at', 6)->nullable();
+            $t->dateTime('last_counted_at', 6)->nullable();
             $t->boolean('is_frozen')->default(false);
             $t->uuid('frozen_by_stocktake_id')->nullable();
-            $t->unsignedBigInteger('version')->default(0);
-            Pg::timestamps($t);
+            $t->bigInteger('version')->default(0);
+            Ddl::timestamps($t);
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->foreign('inventory_location_id')->references('id')->on('inventory_locations')->restrictOnDelete();
             $t->unique(['item_id', 'item_variant_id', 'inventory_location_id', 'inventory_lot_id', 'stock_condition', 'owner_partner_id', 'package_id'], 'inventory_balances_position_uq');
@@ -214,16 +212,17 @@ return new class extends Migration
             $t->index(['item_id', 'stock_condition']);
             $t->index(['warehouse_id', 'item_id']);
         });
-        Pg::enumCheck('inventory_balances', 'stock_condition', StockCondition::class);
-        Pg::check('inventory_balances', 'chk_balances_non_negative', 'allow_negative OR quantity_on_hand >= 0');
-        Pg::check('inventory_balances', 'chk_balances_reserved', 'quantity_reserved >= 0 AND (allow_negative OR quantity_reserved <= quantity_on_hand)');
-        DB::statement('CREATE INDEX inventory_balances_positive ON inventory_balances (item_id, warehouse_id) WHERE quantity_on_hand <> 0');
-        DB::statement('CREATE INDEX inventory_balances_lot ON inventory_balances (inventory_lot_id) WHERE inventory_lot_id <> '.self::SENTINEL);
+        Ddl::enumCheck('inventory_balances', 'stock_condition', StockCondition::class);
+        Ddl::check('inventory_balances', 'chk_balances_non_negative', 'allow_negative OR quantity_on_hand >= 0');
+        Ddl::check('inventory_balances', 'chk_balances_reserved', 'quantity_reserved >= 0 AND (allow_negative OR quantity_reserved <= quantity_on_hand)');
+        // MySQL has no partial indexes; these cover the same lookups (non-zero positions, real lots).
+        DB::statement('CREATE INDEX inventory_balances_positive ON inventory_balances (item_id, warehouse_id, quantity_on_hand)');
+        DB::statement('CREATE INDEX inventory_balances_lot ON inventory_balances (inventory_lot_id)');
 
         // ---------------- Reservations ----------------
         Schema::create('stock_reservations', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'reference_type');
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'reference_type');
             $t->uuid('reference_id');
             $t->uuid('reference_line_id');
             $t->uuid('inventory_balance_id');
@@ -236,67 +235,70 @@ return new class extends Migration
             $t->decimal('quantity_reserved', 20, 6);
             $t->decimal('quantity_consumed', 20, 6)->default(0);
             $t->decimal('quantity_released', 20, 6)->default(0);
-            Pg::enumColumn($t, 'status', default: ReservationStatus::ACTIVE->value);
-            $t->timestampTz('expires_at')->nullable();
+            Ddl::enumColumn($t, 'status', default: ReservationStatus::ACTIVE->value);
+            $t->dateTime('expires_at', 6)->nullable();
             $t->uuid('created_by')->nullable();
             $t->uuid('released_by')->nullable();
-            $t->timestampTz('released_at')->nullable();
+            $t->dateTime('released_at', 6)->nullable();
             $t->text('release_reason')->nullable();
-            $t->unsignedInteger('version')->default(1);
-            Pg::timestamps($t);
+            $t->integer('version')->default(1);
+            Ddl::timestamps($t);
             $t->foreign('inventory_balance_id')->references('id')->on('inventory_balances')->restrictOnDelete();
             $t->foreign('item_serial_id')->references('id')->on('item_serials')->restrictOnDelete();
             $t->index(['reference_type', 'reference_id']);
             $t->index('inventory_balance_id');
         });
-        Pg::enumCheck('stock_reservations', 'reference_type', ReservationReferenceType::class);
-        Pg::enumCheck('stock_reservations', 'status', ReservationStatus::class);
-        Pg::check('stock_reservations', 'chk_reservations_quantities', 'quantity_reserved > 0 AND quantity_consumed >= 0 AND quantity_released >= 0 AND quantity_consumed + quantity_released <= quantity_reserved');
-        DB::statement("CREATE UNIQUE INDEX stock_reservations_active_uq ON stock_reservations (reference_line_id, inventory_balance_id, COALESCE(item_serial_id, ".self::SENTINEL.")) WHERE status IN ('active','partially_consumed')");
-        DB::statement("CREATE UNIQUE INDEX stock_reservations_serial_active_uq ON stock_reservations (item_serial_id) WHERE item_serial_id IS NOT NULL AND status IN ('active','partially_consumed')");
+        Ddl::enumCheck('stock_reservations', 'reference_type', ReservationReferenceType::class);
+        Ddl::enumCheck('stock_reservations', 'status', ReservationStatus::class);
+        Ddl::check('stock_reservations', 'chk_reservations_quantities', 'quantity_reserved > 0 AND quantity_consumed >= 0 AND quantity_released >= 0 AND quantity_consumed + quantity_released <= quantity_reserved');
+        // Live reservations only: rows in any other status index NULLs, which never collide.
+        $live = "status IN ('active','partially_consumed')";
+        Ddl::uniqueIndex('stock_reservations', 'stock_reservations_active_uq',
+            "(CASE WHEN $live THEN reference_line_id END), (CASE WHEN $live THEN inventory_balance_id END), (CASE WHEN $live THEN COALESCE(item_serial_id, ".self::SENTINEL.') END)');
+        Ddl::uniqueExpression('stock_reservations', 'stock_reservations_serial_active_uq', "CASE WHEN item_serial_id IS NOT NULL AND $live THEN item_serial_id END");
 
         // ---------------- Quality checks ----------------
         Schema::create('quality_checks', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'document_type');
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'document_type');
             $t->uuid('document_id');
             $t->uuid('document_line_id')->nullable();
             $t->uuid('item_id');
             $t->uuid('inventory_lot_id')->nullable();
             $t->uuid('warehouse_id');
             $t->uuid('qc_checklist_template_id')->nullable();
-            $t->jsonb('results');
-            Pg::enumColumn($t, 'outcome');
+            $t->json('results');
+            Ddl::enumColumn($t, 'outcome');
             $t->decimal('inspected_quantity', 20, 6)->default(0);
             $t->decimal('passed_quantity', 20, 6)->default(0);
             $t->decimal('failed_quantity', 20, 6)->default(0);
             $t->text('notes')->nullable();
             $t->uuid('inspector_id');
-            $t->timestampTz('inspected_at');
-            Pg::timestamps($t);
+            $t->dateTime('inspected_at', 6);
+            Ddl::timestamps($t);
             $t->index(['document_type', 'document_id']);
             $t->index('inventory_lot_id');
         });
-        Pg::enumCheck('quality_checks', 'document_type', DocumentType::class);
-        Pg::enumCheck('quality_checks', 'outcome', QcOutcome::class);
+        Ddl::enumCheck('quality_checks', 'document_type', DocumentType::class);
+        Ddl::enumCheck('quality_checks', 'outcome', QcOutcome::class);
 
         // ---------------- Valuation ----------------
         Schema::create('item_cost_projections', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('item_id');
             $t->uuid('item_variant_id');     // sentinel when no variant
             $t->uuid('warehouse_id');        // sentinel for company-level costing
             $t->decimal('quantity', 20, 6)->default(0);
             $t->decimal('total_value', 20, 4)->default(0);
             $t->decimal('average_cost', 20, 8)->default(0);
-            $t->unsignedBigInteger('version')->default(0);
-            Pg::timestamps($t);
+            $t->bigInteger('version')->default(0);
+            Ddl::timestamps($t);
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->unique(['item_id', 'item_variant_id', 'warehouse_id'], 'item_cost_projections_identity_uq');
         });
 
         Schema::create('valuation_layers', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('item_id');
             $t->uuid('item_variant_id');
             $t->uuid('warehouse_id');             // sentinel for company-level costing
@@ -304,60 +306,62 @@ return new class extends Migration
             $t->decimal('original_quantity', 20, 6);
             $t->decimal('remaining_quantity', 20, 6);
             $t->decimal('unit_cost', 20, 8);
-            Pg::enumColumn($t, 'status', default: ValuationLayerStatus::OPEN->value);
-            $t->timestampTz('layer_date');
-            Pg::timestamps($t);
+            Ddl::enumColumn($t, 'status', default: ValuationLayerStatus::OPEN->value);
+            $t->dateTime('layer_date', 6);
+            Ddl::timestamps($t);
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->foreign('stock_movement_line_id')->references('id')->on('stock_movement_lines')->restrictOnDelete();
             $t->index(['item_id', 'item_variant_id', 'warehouse_id', 'layer_date']);
         });
-        Pg::enumCheck('valuation_layers', 'status', ValuationLayerStatus::class);
-        Pg::check('valuation_layers', 'chk_valuation_layers_qty', 'remaining_quantity >= 0 AND remaining_quantity <= original_quantity');
-        DB::statement("CREATE INDEX valuation_layers_open ON valuation_layers (item_id, item_variant_id, warehouse_id, layer_date, id) WHERE status = 'open'");
+        Ddl::enumCheck('valuation_layers', 'status', ValuationLayerStatus::class);
+        Ddl::check('valuation_layers', 'chk_valuation_layers_qty', 'remaining_quantity >= 0 AND remaining_quantity <= original_quantity');
+        // Equality on the first four columns makes index order the FIFO order, so FOR UPDATE locks
+        // open layers oldest-first without a filesort.
+        DB::statement('CREATE INDEX valuation_layers_open ON valuation_layers (item_id, item_variant_id, warehouse_id, status, layer_date, id)');
 
         Schema::create('valuation_layer_consumptions', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('valuation_layer_id');
             $t->uuid('stock_movement_line_id');
             $t->decimal('quantity', 20, 6);
             $t->decimal('unit_cost', 20, 8);
-            $t->timestampTz('created_at');
+            $t->dateTime('created_at', 6);
             $t->foreign('valuation_layer_id')->references('id')->on('valuation_layers')->restrictOnDelete();
             $t->foreign('stock_movement_line_id')->references('id')->on('stock_movement_lines')->restrictOnDelete();
             $t->index('stock_movement_line_id');
         });
-        Pg::appendOnly('valuation_layer_consumptions');
+        Ddl::appendOnly('valuation_layer_consumptions');
 
         Schema::create('valuation_variances', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('item_id');
             $t->uuid('stock_movement_line_id');
             $t->decimal('standard_unit_cost', 20, 8);
             $t->decimal('actual_unit_cost', 20, 8);
             $t->decimal('quantity', 20, 6);
             $t->decimal('variance_value', 20, 4);
-            $t->timestampTz('created_at');
+            $t->dateTime('created_at', 6);
             $t->foreign('stock_movement_line_id')->references('id')->on('stock_movement_lines')->restrictOnDelete();
         });
-        Pg::appendOnly('valuation_variances');
+        Ddl::appendOnly('valuation_variances');
 
         // ---------------- Reconciliation ----------------
         Schema::create('reconciliation_runs', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
-            Pg::enumColumn($t, 'status', default: ReconciliationRunStatus::RUNNING->value);
-            $t->jsonb('scope')->nullable();
-            $t->unsignedBigInteger('positions_checked')->default(0);
-            $t->unsignedBigInteger('findings_count')->default(0);
+            Ddl::uuidPrimary($t);
+            Ddl::enumColumn($t, 'status', default: ReconciliationRunStatus::RUNNING->value);
+            $t->json('scope')->nullable();
+            $t->bigInteger('positions_checked')->default(0);
+            $t->bigInteger('findings_count')->default(0);
             $t->uuid('started_by')->nullable();
-            $t->timestampTz('started_at');
-            $t->timestampTz('finished_at')->nullable();
+            $t->dateTime('started_at', 6);
+            $t->dateTime('finished_at', 6)->nullable();
             $t->text('error')->nullable();
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
         });
-        Pg::enumCheck('reconciliation_runs', 'status', ReconciliationRunStatus::class);
+        Ddl::enumCheck('reconciliation_runs', 'status', ReconciliationRunStatus::class);
 
         Schema::create('reconciliation_findings', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('reconciliation_run_id');
             $t->uuid('item_id');
             $t->uuid('item_variant_id');
@@ -367,38 +371,38 @@ return new class extends Migration
             $t->decimal('ledger_quantity', 20, 6);
             $t->decimal('projection_quantity', 20, 6);
             $t->decimal('difference', 20, 6);
-            Pg::enumColumn($t, 'status', default: ReconciliationFindingStatus::OPEN->value);
+            Ddl::enumColumn($t, 'status', default: ReconciliationFindingStatus::OPEN->value);
             $t->uuid('resolved_by')->nullable();
-            $t->timestampTz('resolved_at')->nullable();
+            $t->dateTime('resolved_at', 6)->nullable();
             $t->text('resolution_note')->nullable();
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
             $t->foreign('reconciliation_run_id')->references('id')->on('reconciliation_runs')->restrictOnDelete();
             $t->index('status');
         });
-        Pg::enumCheck('reconciliation_findings', 'status', ReconciliationFindingStatus::class);
+        Ddl::enumCheck('reconciliation_findings', 'status', ReconciliationFindingStatus::class);
 
         // ---------------- Recalls ----------------
         Schema::create('recalls', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->string('document_number', 40)->unique();
             $t->text('reason');
-            Pg::enumColumn($t, 'status', default: RecallStatus::INITIATED->value);
+            Ddl::enumColumn($t, 'status', default: RecallStatus::INITIATED->value);
             $t->uuid('initiated_by');
-            $t->timestampTz('initiated_at');
+            $t->dateTime('initiated_at', 6);
             $t->uuid('closed_by')->nullable();
-            $t->timestampTz('closed_at')->nullable();
+            $t->dateTime('closed_at', 6)->nullable();
             $t->text('closure_note')->nullable();
-            $t->unsignedInteger('version')->default(1);
-            Pg::timestamps($t);
+            $t->integer('version')->default(1);
+            Ddl::timestamps($t);
         });
-        Pg::enumCheck('recalls', 'status', RecallStatus::class);
+        Ddl::enumCheck('recalls', 'status', RecallStatus::class);
 
         Schema::create('recall_lots', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('recall_id');
             $t->uuid('inventory_lot_id');
             $t->string('previous_lock_status', 64);
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
             $t->foreign('recall_id')->references('id')->on('recalls')->restrictOnDelete();
             $t->foreign('inventory_lot_id')->references('id')->on('inventory_lots')->restrictOnDelete();
             $t->unique(['recall_id', 'inventory_lot_id']);
@@ -414,8 +418,8 @@ return new class extends Migration
             $t->string('lot_number', 80)->nullable();
             $t->date('expiry_date')->nullable();
             $t->date('manufacture_date')->nullable();
-            $t->jsonb('serial_numbers')->nullable();
-            Pg::enumColumn($t, 'stock_condition', default: StockCondition::AVAILABLE->value);
+            $t->json('serial_numbers')->nullable();
+            Ddl::enumColumn($t, 'stock_condition', default: StockCondition::AVAILABLE->value);
         }, ['stock_condition' => StockCondition::class]);
 
         $this->inventoryDocument('relocations', RelocationStatus::class, RelocationStatus::DRAFT->value, null, 'relocation_lines', function (Blueprint $t) {
@@ -423,7 +427,7 @@ return new class extends Migration
             $t->uuid('to_storage_location_id');
             $t->uuid('inventory_lot_id')->nullable();
             $t->uuid('item_serial_id')->nullable();
-            Pg::enumColumn($t, 'stock_condition', default: StockCondition::AVAILABLE->value);
+            Ddl::enumColumn($t, 'stock_condition', default: StockCondition::AVAILABLE->value);
             $t->decimal('quantity', 20, 6);
         }, ['stock_condition' => StockCondition::class]);
 
@@ -435,8 +439,8 @@ return new class extends Migration
             $t->uuid('to_storage_location_id')->nullable();
             $t->uuid('inventory_lot_id')->nullable();
             $t->uuid('item_serial_id')->nullable();
-            Pg::enumColumn($t, 'from_condition');
-            Pg::enumColumn($t, 'to_condition');
+            Ddl::enumColumn($t, 'from_condition');
+            Ddl::enumColumn($t, 'to_condition');
             $t->decimal('quantity', 20, 6);
         }, ['from_condition' => StockCondition::class, 'to_condition' => StockCondition::class]);
 
@@ -447,7 +451,7 @@ return new class extends Migration
             $t->uuid('storage_location_id');
             $t->uuid('inventory_lot_id')->nullable();
             $t->uuid('item_serial_id')->nullable();
-            Pg::enumColumn($t, 'stock_condition', default: StockCondition::DAMAGED->value);
+            Ddl::enumColumn($t, 'stock_condition', default: StockCondition::DAMAGED->value);
             $t->decimal('quantity', 20, 6);
         }, ['stock_condition' => StockCondition::class]);
     }
@@ -459,34 +463,34 @@ return new class extends Migration
     private function inventoryDocument(string $table, string $statusEnum, string $defaultStatus, ?Closure $extra, string $linesTable, Closure $lineColumns, array $lineEnums): void
     {
         Schema::create($table, function (Blueprint $t) use ($extra, $defaultStatus) {
-            Pg::uuidPrimary($t);
-            Pg::documentColumns($t);
-            Pg::enumColumn($t, 'status', default: $defaultStatus);
+            Ddl::uuidPrimary($t);
+            Ddl::documentColumns($t);
+            Ddl::enumColumn($t, 'status', default: $defaultStatus);
             if ($extra) {
                 $extra($t);
             }
         });
-        Pg::enumCheck($table, 'status', $statusEnum);
-        Pg::documentChecks($table);
+        Ddl::enumCheck($table, 'status', $statusEnum);
+        Ddl::documentChecks($table);
 
         Schema::create($linesTable, function (Blueprint $t) use ($table, $lineColumns) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('document_id');
-            $t->unsignedInteger('line_no');
+            $t->integer('line_no');
             $t->uuid('item_id');
             $t->uuid('item_variant_id')->nullable();
             $lineColumns($t);
             $t->text('notes')->nullable();
-            Pg::timestamps($t);
+            Ddl::timestamps($t);
             $t->foreign('document_id')->references('id')->on($table)->restrictOnDelete();
             $t->foreign('item_id')->references('id')->on('items')->restrictOnDelete();
             $t->unique(['document_id', 'line_no']);
         });
         foreach ($lineEnums as $col => $enum) {
-            Pg::enumCheck($linesTable, $col, $enum);
+            Ddl::enumCheck($linesTable, $col, $enum);
         }
         if (Schema::hasColumn($linesTable, 'quantity')) {
-            Pg::check($linesTable, "chk_{$linesTable}_qty", 'quantity > 0');
+            Ddl::check($linesTable, "chk_{$linesTable}_qty", 'quantity > 0');
         }
     }
 

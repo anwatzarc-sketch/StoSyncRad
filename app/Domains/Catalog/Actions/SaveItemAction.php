@@ -16,6 +16,7 @@ use App\Domains\Catalog\Services\CategoryPolicyResolver;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\Messaging\Services\Outbox;
 use App\Domains\Platform\Config\PlatformConfig;
+use App\Support\Database\AdvisoryLock;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Math\Decimal as D;
@@ -148,7 +149,7 @@ final class SaveItemAction
             throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'Enter a SKU.', ['field' => 'sku']);
         }
         $pattern = (string) $this->config->get('catalog.sku.pattern', ['category' => $category->id]);
-        DB::select('SELECT pg_advisory_xact_lock(hashtext(?))', ['sku:'.$category->id]);
+        AdvisoryLock::forTransaction(DB::connection(), 'sku:'.$category->id);
         $n = Item::query()->where('category_id', $category->id)->count();
         for ($i = 1; $i < 1000; $i++) {
             $sku = preg_replace_callback('/\{(CAT|YYYY|YY|SEQ:(\d+))\}/', fn ($m) => match (true) {
@@ -259,7 +260,7 @@ final class SaveItemAction
                 throw DomainException::of(ErrorCode::VALIDATION_FAILED, "Some values do not belong to {$attr->name}.", ['field' => "attribute_lines.$i.value_ids"]);
             }
             DB::table('item_attribute_lines')->insert(['id' => (string) Str::uuid7(), 'item_id' => $item->id, 'item_attribute_id' => $attr->id,
-                'value_ids' => '{'.implode(',', $values->pluck('id')->all()).'}', 'created_at' => now(), 'updated_at' => now()]);
+                'value_ids' => json_encode($values->pluck('id')->all(), JSON_THROW_ON_ERROR), 'created_at' => now(), 'updated_at' => now()]);
             if ($attr->create_variant) {
                 $axes[] = ['attribute' => $attr, 'values' => $values->all()];
             }

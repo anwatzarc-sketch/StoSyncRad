@@ -9,6 +9,7 @@ use App\Domains\DataExchange\Enums\ExportFileKind;
 use App\Domains\DataExchange\Models\ExportFile;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\IdentityAccess\Services\Access;
+use App\Domains\Messaging\Services\Outbox;
 use App\Domains\Platform\Config\PlatformConfig;
 use App\Domains\ReportingEngine\Enums\ReportOutputFormat as Format;
 use App\Domains\ReportingEngine\Enums\ReportRunStatus as S;
@@ -22,9 +23,10 @@ use App\Domains\ReportingEngine\Output\ReportWriter;
 use App\Domains\ReportingEngine\Output\XlsxReportWriter;
 use App\Domains\ReportingEngine\Query\CompiledQuery;
 use App\Domains\ReportingEngine\Query\QueryCompiler;
-use App\Support\Http\Correlation;
+use App\Support\Database\SqlError;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
+use App\Support\Http\Correlation;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -33,12 +35,13 @@ use Illuminate\Support\Str;
 
 /**
  * On-demand report execution (Chapter 10 §10.5–10.7). Web runs execute synchronously on the
- * read-only reporting connection; exports are user-initiated jobs streaming a REPEATABLE READ READ
- * ONLY cursor into a writer. Runs store metadata only — never results.
+ * read-only reporting connection; exports are user-initiated jobs streaming an unbuffered result from
+ * a REPEATABLE READ, READ ONLY transaction (one consistent snapshot) into a writer. Runs store
+ * metadata only — never results.
  */
 final class ReportRunner
 {
-    public const CONNECTION = 'pgsql_reporting';
+    public const CONNECTION = 'mysql_reporting';
 
     public function __construct(
         private readonly QueryCompiler $compiler,
@@ -72,9 +75,9 @@ final class ReportRunner
         try {
             $rows = $this->reporting()->transaction(function (Connection $db) use ($compiled, $timeout, $run) {
                 $this->prepareSession($db, $timeout, $run);
-                $this->costGate($db, $compiled);
+                $this->costGate($compiled);
 
-                return array_map(fn ($r) => (array) $r, $db->select($compiled->sql, $compiled->bindings));
+                return array_map(fn ($r) => $this->normalize((array) $r, $compiled), $db->select($compiled->sql, $compiled->bindings));
             });
         } catch (\Throwable $e) {
             $this->fail($run, $e, $started);
@@ -168,7 +171,7 @@ final class ReportRunner
                 'truncated' => $truncated, 'file_path' => $relative, 'file_size' => $size, 'file_expires_at' => $expires, 'backend_pid' => null])->save();
             $this->audit->record($runner, 'reporting.report.exported', 'report_runs', $run->id, null,
                 ['format' => $run->output_format->value, 'rows' => $count, 'truncated' => $truncated]);
-            app(\App\Domains\Messaging\Services\Outbox::class)->publish('reporting.report.completed', 'report_runs', $run->id,
+            app(Outbox::class)->publish('reporting.report.completed', 'report_runs', $run->id,
                 ['report_name' => $name, 'runner_account_id' => $runner->id, 'format' => $run->output_format->value, 'rows' => $count]);
 
             return $run;
@@ -177,7 +180,7 @@ final class ReportRunner
                 @unlink($path);
             }
             $this->fail($run, $e, $started);
-            app(\App\Domains\Messaging\Services\Outbox::class)->publish('reporting.report.failed', 'report_runs', $run->id,
+            app(Outbox::class)->publish('reporting.report.failed', 'report_runs', $run->id,
                 ['report_name' => $name ?? $run->dataset_code, 'runner_account_id' => $run->runner_account_id, 'error' => $run->refresh()->error_code]);
 
             return $run->refresh();
@@ -200,7 +203,8 @@ final class ReportRunner
         }
         if ($run->backend_pid !== null) {
             try {
-                $this->reporting()->select('SELECT pg_cancel_backend(?)', [$run->backend_pid]);
+                // Stops the running statement; the reporting account may kill its own connections' queries.
+                $this->reporting()->statement('KILL QUERY '.(int) $run->backend_pid);
             } catch (QueryException) {
                 // the statement may have finished in the meantime
             }
@@ -291,23 +295,28 @@ final class ReportRunner
         ]);
     }
 
+    /** The reporting session is read-only already (set on connect); this adds the run's time limits. */
     private function prepareSession(Connection $db, int $timeoutSeconds, ReportRun $run): void
     {
-        $db->statement('SET TRANSACTION READ ONLY');
-        $db->statement("SET LOCAL statement_timeout = '{$timeoutSeconds}s'");
-        $db->statement("SET LOCAL lock_timeout = '2s'");
-        $pid = (int) $db->selectOne('SELECT pg_backend_pid() AS pid')->pid;
+        $db->statement('SET SESSION max_execution_time = '.($timeoutSeconds * 1000).', SESSION innodb_lock_wait_timeout = 2');
+        $pid = (int) $db->selectOne('SELECT CONNECTION_ID() AS pid')->pid;
         ReportRun::query()->whereKey($run->id)->update(['backend_pid' => $pid]);
     }
 
-    private function costGate(Connection $db, CompiledQuery $q): void
+    /**
+     * Reject runs whose estimated cost exceeds the threshold. MySQL only explains a view for an account
+     * that can also read the tables beneath it, which the reporting account deliberately cannot; the
+     * runtime account (SELECT and SHOW VIEW on the reporting views) produces the plan instead. EXPLAIN
+     * returns a plan, never rows.
+     */
+    private function costGate(CompiledQuery $q): void
     {
         $threshold = $this->config->int('reporting.explain_cost_threshold');
         if ($threshold <= 0) {
             return;
         }
-        $plan = json_decode((string) $db->selectOne('EXPLAIN (FORMAT JSON) '.$q->sql, $q->bindings)->{'QUERY PLAN'}, true);
-        $cost = (float) ($plan[0]['Plan']['Total Cost'] ?? 0);
+        $plan = json_decode((string) DB::connection()->selectOne('EXPLAIN FORMAT=JSON '.$q->sql, $q->bindings)->EXPLAIN, true);
+        $cost = (float) ($plan['query_block']['cost_info']['query_cost'] ?? 0);
         if ($cost > $threshold) {
             throw DomainException::of(ErrorCode::REPORT_TOO_EXPENSIVE, 'This report would scan too much data. Add filters (date range, warehouse, item) or group the results.',
                 ['estimated_cost' => (int) $cost, 'threshold' => $threshold]);
@@ -317,36 +326,52 @@ final class ReportRunner
     /** @return array{0: int, 1: bool} [rows written, truncated] */
     private function stream(CompiledQuery $q, ReportWriter $writer, int $cap, int $timeout, ReportRun $run): array
     {
-        return $this->reporting()->transaction(function (Connection $db) use ($q, $writer, $cap, $timeout, $run) {
-            $db->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
-            $db->statement("SET LOCAL statement_timeout = '{$timeout}s'");
-            $pid = (int) $db->selectOne('SELECT pg_backend_pid() AS pid')->pid;
-            ReportRun::query()->whereKey($run->id)->update(['backend_pid' => $pid]);
-            $this->costGate($db, $q);
-            $db->statement('DECLARE report_cursor NO SCROLL CURSOR FOR '.$q->unpaged(), $q->bindings);
-            $count = 0;
-            while (true) {
-                $batch = $db->select('FETCH FORWARD 1000 FROM report_cursor');
-                if ($batch === []) {
-                    break;
-                }
-                foreach ($batch as $row) {
-                    if ($count >= $cap) {
-                        $db->statement('CLOSE report_cursor');
+        $db = $this->reporting();
+        // SET TRANSACTION (without SESSION) applies to the next transaction only, so it precedes BEGIN.
+        $db->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
 
+        return $db->transaction(function (Connection $db) use ($q, $writer, $cap, $timeout, $run) {
+            $this->prepareSession($db, $timeout, $run);
+            $this->costGate($q);
+            // Unbuffered: rows stream from the server instead of being loaded into memory. Fetching at
+            // most cap + 1 rows means a truncated export never has to drain a huge result.
+            $pdo = $db->getPdo();
+            $pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+            try {
+                $count = 0;
+                foreach ($db->cursor($q->unpaged().' LIMIT '.($cap + 1), $q->bindings) as $row) {
+                    if ($count >= $cap) {
                         return [$count, true];
                     }
-                    $writer->write((array) $row);
+                    $writer->write($this->normalize((array) $row, $q));
                     $count++;
+                    if ($count % 1000 === 0 && ReportRun::query()->whereKey($run->id)->value('status') === S::CANCELLED->value) {
+                        throw DomainException::of(ErrorCode::OPERATION_TIMEOUT, 'The export was cancelled.');
+                    }
                 }
-                if (ReportRun::query()->whereKey($run->id)->value('status') === S::CANCELLED->value) {
-                    throw DomainException::of(ErrorCode::OPERATION_TIMEOUT, 'The export was cancelled.');
-                }
-            }
-            $db->statement('CLOSE report_cursor');
 
-            return [$count, false];
+                return [$count, false];
+            } finally {
+                $pdo->setAttribute(\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+            }
         });
+    }
+
+    /**
+     * MySQL returns booleans as 0/1; report output keeps them as true/false.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function normalize(array $row, CompiledQuery $q): array
+    {
+        foreach ($q->columns as $column) {
+            if ($column['type'] === 'boolean' && isset($row[$column['key']])) {
+                $row[$column['key']] = (bool) $row[$column['key']];
+            }
+        }
+
+        return $row;
     }
 
     private function writer(Format $format): ReportWriter
@@ -359,7 +384,7 @@ final class ReportRunner
 
     private function fail(ReportRun $run, \Throwable $e, int $started): void
     {
-        $code = $e instanceof DomainException ? $e->errorCode->value : (($e instanceof QueryException && in_array($e->getCode(), ['57014'], true)) ? 'OPERATION_TIMEOUT' : 'INTERNAL_ERROR');
+        $code = $e instanceof DomainException ? $e->errorCode->value : ((SqlError::isStatementTimeout($e) || SqlError::isCancelled($e)) ? 'OPERATION_TIMEOUT' : 'INTERNAL_ERROR');
         $status = $e instanceof DomainException && in_array($e->errorCode, [ErrorCode::REPORT_TOO_EXPENSIVE, ErrorCode::REPORT_FIELD_FORBIDDEN,
             ErrorCode::PERMISSION_DENIED, ErrorCode::REPORT_CAPACITY], true) ? S::REJECTED : S::FAILED;
         if (ReportRun::query()->whereKey($run->id)->value('status') === S::CANCELLED->value) {
@@ -371,7 +396,7 @@ final class ReportRunner
 
     private function translate(\Throwable $e): \Throwable
     {
-        if ($e instanceof QueryException && $e->getCode() === '57014') {
+        if (SqlError::isStatementTimeout($e) || SqlError::isCancelled($e)) {
             return DomainException::of(ErrorCode::OPERATION_TIMEOUT, 'The report took too long and was stopped. Add filters or group the results.');
         }
 

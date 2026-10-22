@@ -28,23 +28,31 @@ file covers running, deploying and extending it.
 
 ## Requirements
 
-PHP 8.3+ (`pdo_pgsql`, `pgsql`, `mbstring`, `intl`, `gd` or `imagick`, `zip`, `bcmath`, `openssl`,
-`fileinfo`, `ctype`, `json`, `xml`, `tokenizer`, `curl`), PostgreSQL 16+, Composer, Node 22 LTS (build
-machine only), HTTPS, a scheduler entry running `php artisan schedule:run` every minute, and a queue
-worker for all three queues (`php artisan queue:work --queue=imports,reporting,default`) — a plain
+PHP 8.3+ (`pdo_mysql`, `mbstring`, `intl`, `gd` or `imagick`, `zip`, `bcmath`, `openssl`,
+`fileinfo`, `ctype`, `json`, `xml`, `tokenizer`, `curl`), MySQL 8.4 LTS (not MariaDB), Composer, Node 22
+LTS (build machine only), HTTPS, a scheduler entry running `php artisan schedule:run` every minute, and a
+queue worker for all three queues (`php artisan queue:work --queue=imports,reporting,default`) — a plain
 `queue:work` only serves `default`, so imports and report exports would wait forever.
 
-PostgreSQL needs four roles: **deploy** (owns the schema, runs migrations), **runtime** (the app; no
-DDL, cannot update or delete ledger/audit rows), **reporting** (read-only on `reporting.*` views) and
-**backup**. `php artisan platform:health` verifies the privileges.
+MySQL needs two databases per deployment — `<db>` and `<db>_reporting` (the reporting views) — and four
+accounts: **deploy** (owns the schema, runs migrations), **runtime** (the app; no DDL, cannot update or
+delete ledger/audit rows), **reporting** (read-only on the reporting views) and **backup**.
+`database/mysql/setup.sql` creates them (run once as an administrator; it also sets
+`log_bin_trust_function_creators`, which the append-only triggers need):
+
+```bash
+mysql -u root -p -e "SET @deploy_pw='…', @app_pw='…', @reporting_pw='…', @backup_pw='…'; SOURCE database/mysql/setup.sql"
+```
+
+`php artisan platform:health` verifies the privileges, the append-only triggers and the session settings.
 
 ## Local development
 
 ```bash
 composer install && npm ci
-cp .env.example .env          # set DB_* for your local PostgreSQL roles, APP_URL, APP_ENV=local
+cp .env.example .env          # set DB_* for your local MySQL accounts, APP_URL, APP_ENV=local
 php artisan key:generate
-php artisan migrate --database=pgsql_deploy
+php artisan migrate --database=mysql_deploy
 php artisan platform:bootstrap --print-url   # prints a one-time setup link
 npm run dev & php artisan serve
 ```
@@ -57,8 +65,8 @@ Follow Spec Chapter 16 §16.3. In short:
 
 ```bash
 php artisan down --secret=<bypass>
-php artisan migrate --database=pgsql_deploy --force
-php artisan platform:upgrade          # permissions, config registry, reporting views, additive seeds, route gates
+php artisan migrate --database=mysql_deploy --force
+php artisan platform:upgrade          # permissions, config registry, reporting views, runtime grants, additive seeds, route gates
 php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan event:cache
 php artisan queue:restart
 php artisan platform:health --strict
@@ -67,7 +75,7 @@ php artisan up
 
 ## Onboarding a new client (the fast path)
 
-1. Provision PostgreSQL with the four roles, HTTPS hosting and `.env` (infrastructure values only).
+1. Provision MySQL 8.4 with `database/mysql/setup.sql`, HTTPS hosting and `.env` (infrastructure values only).
 2. Deploy the same artifact as every other client.
 3. Prepare a **brand kit** zip: `brand.json` (names, colours, support and legal text) plus
    `assets/<kind>.<ext>` (`logo_light`, `logo_dark`, `logo_mark`, `favicon_source`, `pwa_icon_source`, …).
@@ -152,12 +160,13 @@ Product photos: `items/{id}/images` (JPG/PNG/WebP, content-checked, private disk
 | `app/Http/Controllers/Api` | JSON API (`/api/v1`), generic resource CRUD from `ResourceRegistry`, workflow actions |
 | `routes/api/*.php` | One permission per endpoint (`->permission()`), payload schema per write (`->schema()` / `->noBody()`) |
 | `resources/js` | Vue 3 + TypeScript + Inertia PWA: schema-driven forms, app shell, setup wizard, report builder |
-| `database/migrations` | PostgreSQL schema with enum CHECKs, append-only triggers and the reporting views |
+| `database/migrations` | MySQL schema with enum CHECKs, append-only triggers and the reporting views (helpers in `app/Support/Database`) |
+| `database/mysql` | One-time database and account setup (`setup.sql`, `setup-database.sql`) |
 
 ## Tests
 
 ```bash
-vendor/bin/phpunit        # needs the PostgreSQL test database (see phpunit.xml)
+vendor/bin/phpunit        # needs the MySQL test database stosyncrad_test (created by setup.sql; see phpunit.xml)
 npx vitest run            # frontend units
 npx vue-tsc --noEmit      # type check
 npm run build             # production bundle + service worker

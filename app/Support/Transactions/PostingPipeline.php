@@ -8,13 +8,13 @@ use App\Domains\Audit\Services\AuditRecorder;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\Messaging\Services\Outbox;
 use App\Domains\Platform\Config\PlatformConfig;
+use App\Support\Database\SqlError;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Http\Correlation;
 use App\Support\Testing\FaultInjector;
 use Closure;
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -25,8 +25,8 @@ use Throwable;
  *  1. validate the idempotency key                    (here)
  *  2. authenticate & authorize                        (caller, before run())
  *  3. idempotency pre-check → replay / mismatch        (here, outside the transaction)
- *  4. begin transaction, SET LOCAL lock_timeout        (TransactionRunner)
- *  5. claim the key: INSERT … ON CONFLICT DO NOTHING   (here, inside the transaction; the
+ *  4. lock-wait timeout, begin transaction             (TransactionRunner)
+ *  5. claim the key: INSERT … ON DUPLICATE KEY UPDATE  (here, inside the transaction; the
  *                                                       unique constraint is the race breaker)
  *  6–12. lock document, lock positions, revalidate, write ledger, projections, audit, outbox
  *                                                      (the work closure, via InventoryPoster)
@@ -80,7 +80,7 @@ final class PostingPipeline
         $attempt = 0;
         try {
             return $this->runner->run(function (ConnectionInterface $conn) use (
-                $actor, $operation, $idempotencyKey, $payload, $work, $scopeType, $scopeId, $hash, &$attempt
+                $actor, $operation, $idempotencyKey, $work, $scopeType, $scopeId, $hash, &$attempt
             ) {
                 $attempt++;
                 $keyId = (string) Str::uuid7();
@@ -88,15 +88,17 @@ final class PostingPipeline
                 $ttl = $this->config->int('api.idempotency.ttl_hours');
 
                 // Step 5 — claim. Blocks behind a concurrent uncommitted claim of the same key;
-                // after it commits the insert conflicts and we replay its result.
-                $claimed = $conn->selectOne(
-                    'INSERT INTO idempotency_keys (id, scope_type, scope_id, key, operation, request_hash, status, expires_at, created_at, updated_at)
+                // after it commits the insert hits the duplicate (now locked by us) and we replay its
+                // result. One affected row = inserted; zero = the key already existed. Unlike
+                // INSERT IGNORE this keeps CHECK and truncation errors visible.
+                $claimed = $conn->affectingStatement(
+                    'INSERT INTO idempotency_keys (id, scope_type, scope_id, `key`, operation, request_hash, status, expires_at, created_at, updated_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                     ON CONFLICT (scope_type, scope_id, key) DO NOTHING RETURNING id',
+                     ON DUPLICATE KEY UPDATE id = id',
                     [$keyId, $scopeType->value, $scopeId, $idempotencyKey, $operation, $hash, IdempotencyStatus::IN_PROGRESS->value,
                         $now->addHours($ttl), $now, $now]
-                );
-                if ($claimed === null) {
+                ) === 1;
+                if (! $claimed) {
                     $existing = $this->lookup($scopeType, $scopeId, $idempotencyKey, $hash, $conn);
                     if ($existing !== null) {
                         return $existing;
@@ -149,7 +151,7 @@ final class PostingPipeline
     {
         $row = ($conn ?? DB::connection())->selectOne(
             'SELECT status, request_hash, response_code, response_body, result_document_type, result_document_id
-               FROM idempotency_keys WHERE scope_type = ? AND scope_id = ? AND key = ?',
+               FROM idempotency_keys WHERE scope_type = ? AND scope_id = ? AND `key` = ?',
             [$scopeType->value, $scopeId, $key]
         );
         if ($row === null) {
@@ -185,6 +187,6 @@ final class PostingPipeline
     /** Convenience for callers translating a lock wait on the key into the documented error. */
     public static function isLockTimeout(Throwable $e): bool
     {
-        return $e instanceof QueryException && TransactionRunner::sqlState($e) === '55P03';
+        return SqlError::isLockTimeout($e);
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Domains\Platform\Services;
 
+use App\Domains\ReportingEngine\Services\ReportingSetup;
+use App\Domains\ReportingEngine\Services\ReportRunner;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -14,7 +16,9 @@ use Throwable;
  */
 class Preflight
 {
-    public const REQUIRED_EXTENSIONS = ['pdo_pgsql', 'pgsql', 'mbstring', 'intl', 'zip', 'bcmath', 'openssl', 'fileinfo', 'ctype', 'json', 'xml', 'tokenizer', 'curl'];
+    public const REQUIRED_EXTENSIONS = ['pdo_mysql', 'mbstring', 'intl', 'zip', 'bcmath', 'openssl', 'fileinfo', 'ctype', 'json', 'xml', 'tokenizer', 'curl'];
+
+    public const MINIMUM_MYSQL_VERSION = '8.4.0';
 
     /** @return array<int, array{check: string, status: string, message: string, remediation: ?string}> */
     public function run(): array
@@ -36,15 +40,22 @@ class Preflight
             : $add('image_extension', 'warn', 'Neither gd nor imagick is loaded; brand icons cannot be generated', 'Enable gd or imagick.');
 
         try {
-            $version = (int) DB::selectOne('SHOW server_version_num')->server_version_num;
-            $version >= 160000 ? $add('postgres_version', 'pass', 'PostgreSQL '.intdiv($version, 10000))
-                : $add('postgres_version', 'fail', 'PostgreSQL '.intdiv($version, 10000).' is not supported', 'Upgrade to PostgreSQL 16 or later.');
-            $timeout = DB::selectOne('SHOW statement_timeout')->statement_timeout;
-            $timeout !== '0' ? $add('statement_timeout', 'pass', "statement_timeout = $timeout")
-                : $add('statement_timeout', 'warn', 'statement_timeout is unlimited for the runtime role', 'Run database/postgres/roles.sql.');
+            $version = (string) DB::selectOne('SELECT VERSION() AS v')->v;
+            $number = preg_match('/^\d+\.\d+\.\d+/', $version, $m) === 1 ? $m[0] : '0.0.0';
+            if (stripos($version, 'mariadb') !== false) {
+                $add('mysql_version', 'fail', "MariaDB $number is not supported", 'Use MySQL '.self::MINIMUM_MYSQL_VERSION.' or later.');
+            } else {
+                version_compare($number, self::MINIMUM_MYSQL_VERSION, '>=') ? $add('mysql_version', 'pass', "MySQL $number")
+                    : $add('mysql_version', 'fail', "MySQL $number is not supported", 'Upgrade to MySQL '.self::MINIMUM_MYSQL_VERSION.' or later.');
+            }
+            $session = DB::selectOne('SELECT @@SESSION.max_execution_time AS t, @@SESSION.transaction_isolation AS i');
+            (int) $session->t > 0 ? $add('statement_timeout', 'pass', "max_execution_time = {$session->t} ms")
+                : $add('statement_timeout', 'warn', 'Queries of the runtime connection have no time limit', 'Set DB_STATEMENT_TIMEOUT_MS (config/database.php timeouts).');
+            $session->i === 'READ-COMMITTED' ? $add('isolation_level', 'pass', 'Transactions run READ COMMITTED')
+                : $add('isolation_level', 'fail', "Transactions run {$session->i}", 'Keep isolation_level READ COMMITTED on every connection in config/database.php.');
             $this->privilegeProbes($add);
         } catch (Throwable $e) {
-            $add('database', 'fail', 'Cannot reach PostgreSQL: '.$e->getMessage(), 'Check DB_* environment variables and that the server is running.');
+            $add('database', 'fail', 'Cannot reach MySQL: '.$e->getMessage(), 'Check DB_* environment variables and that the server is running.');
         }
 
         foreach ([storage_path(), base_path('bootstrap/cache')] as $dir) {
@@ -83,23 +94,42 @@ class Preflight
 
     private function privilegeProbes(callable $add): void
     {
-        $runtime = DB::selectOne("SELECT has_table_privilege(current_user, 'stock_movement_lines', 'DELETE') AS d,
-                                         has_column_privilege(current_user, 'stock_movement_lines', 'quantity', 'UPDATE') AS u,
-                                         has_table_privilege(current_user, 'audit_events', 'DELETE') AS a");
-        ($runtime->d || $runtime->u || $runtime->a)
-            ? $add('runtime_role_append_only', 'fail', 'The runtime role can modify ledger or audit rows', 'Connect with the least-privilege runtime role (stosyncrad_app).')
-            : $add('runtime_role_append_only', 'pass', 'Runtime role cannot modify ledger or audit rows');
+        $modifiesLedger = $this->hasPrivilege('DELETE', 'stock_movement_lines')
+            || $this->hasPrivilege('UPDATE', 'stock_movement_lines', 'quantity')
+            || $this->hasPrivilege('DELETE', 'audit_events');
+        $modifiesLedger
+            ? $add('runtime_role_append_only', 'fail', 'The runtime account can modify ledger or audit rows', 'Connect with the least-privilege runtime account (stosyncrad_app).')
+            : $add('runtime_role_append_only', 'pass', 'Runtime account cannot modify ledger or audit rows');
 
-        try {
-            $reporting = DB::connection('pgsql_reporting');
-            $readOnly = $reporting->selectOne('SHOW default_transaction_read_only')->default_transaction_read_only;
-            $canWrite = $reporting->selectOne("SELECT has_table_privilege(current_user, 'stock_movements', 'INSERT') AS w")->w;
-            ($readOnly === 'on' && ! $canWrite)
-                ? $add('reporting_role', 'pass', 'Reporting role is read-only')
-                : $add('reporting_role', 'fail', 'Reporting role can write or is not read-only', 'Re-run database/postgres/roles.sql for stosyncrad_reporting.');
-            $reporting->disconnect();
-        } catch (Throwable $e) {
-            $add('reporting_role', 'fail', 'Reporting connection failed: '.$e->getMessage(), 'Check DB_REPORTING_* variables.');
+        $probe = app(ReportingSetup::class)->probeReadOnly();
+        if (! $probe['reachable']) {
+            $add('reporting_role', 'fail', 'Reporting connection failed: '.($probe['error'] ?? ''), 'Check DB_REPORTING_* variables.');
+        } elseif ($probe['read_only']) {
+            $add('reporting_role', 'pass', 'Reporting account is read-only');
+        } else {
+            $add('reporting_role', 'fail', 'Reporting account can write, read base tables or is not read-only', 'Re-run database/mysql/setup.sql for stosyncrad_reporting.');
         }
+        DB::connection(ReportRunner::CONNECTION)->disconnect();
+    }
+
+    /**
+     * Whether the runtime connection's own account holds a privilege on a table (or column), granted
+     * globally, on the database, on the table or on the column.
+     */
+    private function hasPrivilege(string $privilege, string $table, ?string $column = null): bool
+    {
+        $db = DB::connection();
+        $schema = $db->getDatabaseName();
+        $grantee = "CONCAT('''', SUBSTRING_INDEX(CURRENT_USER(), '@', 1), '''@''', SUBSTRING_INDEX(CURRENT_USER(), '@', -1), '''')";
+        $sql = "SELECT EXISTS (SELECT 1 FROM information_schema.USER_PRIVILEGES WHERE GRANTEE = $grantee AND PRIVILEGE_TYPE = ?)
+                    OR EXISTS (SELECT 1 FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE = $grantee AND TABLE_SCHEMA = ? AND PRIVILEGE_TYPE = ?)
+                    OR EXISTS (SELECT 1 FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE = $grantee AND TABLE_SCHEMA = ? AND TABLE_NAME = ? AND PRIVILEGE_TYPE = ?)";
+        $bindings = [$privilege, $schema, $privilege, $schema, $table, $privilege];
+        if ($column !== null) {
+            $sql .= " OR EXISTS (SELECT 1 FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE = $grantee AND TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? AND PRIVILEGE_TYPE = ?)";
+            array_push($bindings, $schema, $table, $column, $privilege);
+        }
+
+        return (bool) $db->selectOne("$sql AS p", $bindings)->p;
     }
 }

@@ -48,7 +48,7 @@ final class StockQueryController extends ApiController
             'b.id', 'b.item_id', 'i.sku', 'i.name as item_name', 'b.warehouse_id', 'w.code as warehouse_code', 'il.storage_location_id', 'sl.full_path as location_path',
             'b.inventory_lot_id', 'l.lot_number', 'l.expiry_date', 'b.stock_condition', 'b.quantity_on_hand', 'b.quantity_reserved',
             DB::raw('(b.quantity_on_hand - b.quantity_reserved) AS quantity_available'), 'b.is_frozen',
-        ])->map(fn ($r) => ['inventory_lot_id' => Sentinel::toNull($r->inventory_lot_id)] + (array) $r)->all();
+        ])->map(fn ($r) => ['inventory_lot_id' => Sentinel::toNull($r->inventory_lot_id), 'is_frozen' => (bool) $r->is_frozen] + (array) $r)->all();
 
         return response()->json(['data' => $rows]);
     }
@@ -86,7 +86,7 @@ final class StockQueryController extends ApiController
         $lines = $base()->whereBetween('m.business_date', [$from, $to])->leftJoin('inventory_lots as l', 'l.id', '=', 'ml.inventory_lot_id')
             ->orderBy('m.posted_at')->orderBy('ml.line_no')->limit(5000)
             ->selectRaw("m.posted_at, m.business_date, m.movement_number, m.movement_type, m.source_document_type, m.source_document_number, l.lot_number,
-                ml.source_condition, ml.destination_condition, ($signed) AS change", [$warehouseId, $warehouseId])->get();
+                ml.source_condition, ml.destination_condition, ($signed) AS `change`", [$warehouseId, $warehouseId])->get();
         $balance = $opening;
         $rows = [];
         foreach ($lines as $l) {

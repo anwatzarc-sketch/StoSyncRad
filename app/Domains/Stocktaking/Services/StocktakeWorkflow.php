@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Stocktaking\Services;
 
+use App\Domains\Catalog\Enums\AbcClass;
 use App\Domains\IdentityAccess\Enums\DocumentAction;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\IdentityAccess\Services\ApprovalService;
@@ -35,6 +36,7 @@ use App\Support\Sentinel;
 use App\Support\Transactions\PostingContext;
 use App\Support\Transactions\PostingOutcome;
 use App\Support\Transactions\PostingPipeline;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -394,7 +396,7 @@ final class StocktakeWorkflow
     }
 
     /** Positions with stock in the stocktake's scope (physical locations of the warehouse). */
-    private function balancesInScope(Stocktake $st): \Illuminate\Database\Query\Builder
+    private function balancesInScope(Stocktake $st): Builder
     {
         $scope = (array) $st->scope;
         $q = DB::table('inventory_balances as b')->join('inventory_locations as il', 'il.id', '=', 'b.inventory_location_id')
@@ -411,7 +413,7 @@ final class StocktakeWorkflow
         }
         if (! empty($scope['category_ids'])) {
             $q->whereIn('i.category_id', DB::table('item_categories as c')->join('item_categories as root', function ($j) {
-                $j->whereRaw("c.code_path = root.code_path OR c.code_path LIKE root.code_path || '/%'");
+                $j->whereRaw("c.code_path = root.code_path OR c.code_path LIKE CONCAT(root.code_path, '/%')");
             })->whereIn('root.id', $scope['category_ids'])->select('c.id'));
         }
         if (! empty($scope['item_ids'])) {
@@ -469,8 +471,8 @@ final class StocktakeWorkflow
             }
         }
         foreach ((array) ($scope['abc_classes'] ?? []) as $c) {
-            \App\Domains\Catalog\Enums\AbcClass::tryFrom($c) ?? throw DomainException::of(ErrorCode::VALIDATION_FAILED,
-                "`$c` is not a valid ABC class. Allowed: ".implode(', ', \App\Domains\Catalog\Enums\AbcClass::values()).'.', ['field' => 'scope.abc_classes']);
+            AbcClass::tryFrom($c) ?? throw DomainException::of(ErrorCode::VALIDATION_FAILED,
+                "`$c` is not a valid ABC class. Allowed: ".implode(', ', AbcClass::values()).'.', ['field' => 'scope.abc_classes']);
         }
 
         return array_filter($scope);

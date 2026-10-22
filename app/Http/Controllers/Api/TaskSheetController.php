@@ -131,7 +131,7 @@ final class TaskSheetController extends ApiController
         $reserved = DB::table('stock_reservations as r')->join('inventory_locations as il', 'il.id', '=', 'r.inventory_location_id')
             ->join('storage_locations as sl', 'sl.id', '=', 'il.storage_location_id')->leftJoin('inventory_lots as lot', 'lot.id', '=', 'r.inventory_lot_id')
             ->where('r.reference_line_id', $lineId)->whereIn('r.status', [ReservationStatus::ACTIVE->value, ReservationStatus::PARTIALLY_CONSUMED->value])
-            ->orderByRaw('lot.expiry_date ASC NULLS LAST')->orderBy('sl.full_path')
+            ->orderByRaw('lot.expiry_date IS NULL, lot.expiry_date ASC')->orderBy('sl.full_path')
             ->get(['sl.id as storage_location_id', 'sl.full_path as location_path', 'r.inventory_lot_id', 'lot.lot_number', 'lot.expiry_date',
                 DB::raw('r.quantity_reserved - r.quantity_consumed - r.quantity_released AS open')]);
         foreach ($reserved as $r) {

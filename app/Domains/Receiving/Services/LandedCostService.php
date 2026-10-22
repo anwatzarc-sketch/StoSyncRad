@@ -9,6 +9,7 @@ use App\Domains\Catalog\Models\Item;
 use App\Domains\Catalog\Services\CategoryPolicyResolver;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\Inventory\Enums\ValuationLayerStatus;
+use App\Domains\Inventory\Posting\BalanceLocker;
 use App\Domains\Inventory\Services\ValuationService;
 use App\Domains\Organization\Models\InventoryLocation;
 use App\Domains\Platform\Config\PlatformConfig;
@@ -23,6 +24,7 @@ use App\Support\Sentinel;
 use App\Support\Transactions\PostingContext;
 use App\Support\Transactions\PostingOutcome;
 use App\Support\Transactions\PostingPipeline;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -41,6 +43,7 @@ final class LandedCostService
         private readonly PostingPipeline $pipeline,
         private readonly ValuationService $valuation,
         private readonly CategoryPolicyResolver $policies,
+        private readonly BalanceLocker $locker,
     ) {}
 
     /** @param  array{amount: string, basis?: string, description: string, currency?: ?string}  $data */
@@ -76,11 +79,12 @@ final class LandedCostService
                 $groupId = (string) Str::uuid7();
                 $allocated = '0';
                 $rows = [];
+                $targets = $this->lockTargets($lines);
                 foreach ($lines->values() as $i => $l) {
                     $share = $i === $lines->count() - 1 ? D::sub($amount, $allocated, D::MONEY_SCALE)
                         : D::div(D::mul($amount, $weights[$i], D::MONEY_SCALE + 6), $totalWeight, D::MONEY_SCALE);
                     $allocated = D::add($allocated, $share, D::MONEY_SCALE);
-                    [$capitalized, $expensed] = $this->apply($l, $share);
+                    [$capitalized, $expensed] = $this->apply($l, $share, $targets[$l->id]);
                     $rows[] = ['id' => (string) Str::uuid7(), 'allocation_group_id' => $groupId, 'goods_receipt_id' => $gr->id, 'goods_receipt_line_id' => $l->gr_line_id,
                         'stock_movement_line_id' => $l->id, 'item_id' => $l->item_id, 'description' => mb_substr((string) $data['description'], 0, 200),
                         'currency' => $data['currency'] ?? null, 'allocated_value' => $share, 'capitalized_value' => $capitalized, 'expensed_value' => $expensed,
@@ -96,8 +100,49 @@ final class LandedCostService
             }, failureAudit: ['inventory.landed_cost.failed', 'goods_receipts', $goodsReceiptId]);
     }
 
+    /**
+     * Lock everything the allocation updates in the same order postings use — items, then stock
+     * positions, cost projections and FIFO layers — so it cannot deadlock with a concurrent posting.
+     * Returns, per ledger line, the position that receives the capitalized value (the largest
+     * on-hand position at the line's destination), or null when none is left.
+     *
+     * @param  Collection<int, object>  $lines
+     * @return array<string, ?string>
+     */
+    private function lockTargets(Collection $lines): array
+    {
+        $itemIds = $lines->pluck('item_id')->unique()->sort(SORT_STRING)->values()->all();
+        Item::query()->forceIndex('PRIMARY')->whereIn('id', $itemIds)->orderBy('id')->lockForUpdate()->pluck('id');
+
+        $targets = [];
+        $projections = [];
+        foreach ($lines as $l) {
+            $variant = Sentinel::orId($l->item_variant_id);
+            $targets[$l->id] = DB::table('inventory_balances')->where('inventory_location_id', $l->destination_inventory_location_id)
+                ->where('item_id', $l->item_id)->where('item_variant_id', $variant)->where('quantity_on_hand', '>', 0)
+                ->orderByDesc('quantity_on_hand')->orderBy('id')->value('id');
+            $location = InventoryLocation::query()->findOrFail($l->destination_inventory_location_id);
+            $key = [$l->item_id, $variant, $this->valuation->bucket($location) ?? Sentinel::UUID];
+            $projections[implode('|', $key)] = $key;
+        }
+        $this->locker->lockByIds(array_values(array_filter($targets)));
+
+        ksort($projections, SORT_STRING);
+        foreach ($projections as $key) {
+            DB::selectOne('SELECT id FROM item_cost_projections FORCE INDEX (item_cost_projections_identity_uq)
+                            WHERE item_id = ? AND item_variant_id = ? AND warehouse_id = ? FOR UPDATE', $key);
+        }
+
+        $layerIds = DB::table('valuation_layers')->whereIn('stock_movement_line_id', $lines->pluck('id')->all())->pluck('id')->sort(SORT_STRING)->values()->all();
+        if ($layerIds !== []) {
+            DB::table('valuation_layers')->forceIndex('PRIMARY')->whereIn('id', $layerIds)->orderBy('id')->lockForUpdate()->pluck('id');
+        }
+
+        return $targets;
+    }
+
     /** @return array{0: string, 1: string} [capitalized, expensed] */
-    private function apply(object $line, string $share): array
+    private function apply(object $line, string $share, ?string $balanceId): array
     {
         $item = Item::query()->findOrFail($line->item_id);
         $location = InventoryLocation::query()->findOrFail($line->destination_inventory_location_id);
@@ -126,10 +171,10 @@ final class LandedCostService
                 DB::update('UPDATE valuation_layers SET unit_cost = unit_cost + ?, updated_at = ? WHERE id = ? AND status = ?',
                     [D::div($capitalized, $remaining, D::COST_SCALE), now(), $layer->id, ValuationLayerStatus::OPEN->value]);
             }
-            DB::update('UPDATE inventory_balances SET total_value_projection = total_value_projection + ?, updated_at = ?
-                WHERE inventory_location_id = ? AND item_id = ? AND item_variant_id = ? AND quantity_on_hand > 0
-                  AND id = (SELECT id FROM inventory_balances WHERE inventory_location_id = ? AND item_id = ? AND item_variant_id = ? AND quantity_on_hand > 0 ORDER BY quantity_on_hand DESC LIMIT 1)',
-                [$capitalized, now(), $line->destination_inventory_location_id, $item->id, $variant, $line->destination_inventory_location_id, $item->id, $variant]);
+            if ($balanceId !== null) {
+                DB::update('UPDATE inventory_balances SET total_value_projection = total_value_projection + ?, updated_at = ? WHERE id = ? AND quantity_on_hand > 0',
+                    [$capitalized, now(), $balanceId]);
+            }
         }
         if (D::isPositive($expensed)) {
             DB::table('valuation_variances')->insert(['id' => (string) Str::uuid7(), 'item_id' => $item->id, 'stock_movement_line_id' => $line->id,

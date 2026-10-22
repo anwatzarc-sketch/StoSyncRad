@@ -28,13 +28,16 @@ use App\Domains\Organization\Enums\WarehouseStatus;
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\StorageLocation;
 use App\Domains\Organization\Models\Warehouse;
+use App\Domains\Organization\Schemas\CompanyProfileSchema;
 use App\Domains\Partners\Enums\PartnerStatus;
 use App\Domains\Partners\Models\Partner;
+use App\Domains\Platform\Config\PlatformConfig;
 use App\Domains\Platform\Services\SetupState;
 use App\Domains\Platform\Setup\SetupService;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Math\Decimal as D;
+use App\Support\Schema\SchemaValidated;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -158,7 +161,9 @@ final class LifecycleController extends ApiController
                 throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'Only empty locations without active children can be archived.');
             }
         }
-        $loc->forceFill(['status' => match ($action) { 'block' => StorageLocationStatus::BLOCKED, 'archive' => StorageLocationStatus::ARCHIVED, default => StorageLocationStatus::ACTIVE },
+        $loc->forceFill(['status' => match ($action) {
+            'block' => StorageLocationStatus::BLOCKED, 'archive' => StorageLocationStatus::ARCHIVED, default => StorageLocationStatus::ACTIVE
+        },
             'updated_by' => $actor->id])->save();
         DB::table('inventory_locations')->where('storage_location_id', $loc->id)->update(['is_active' => $action !== 'archive', 'updated_at' => now()]);
         $this->audit->record($actor, 'organization.storage_location.'.$action, 'storage_locations', $loc->id, null, null, $request->input('reason'));
@@ -194,14 +199,14 @@ final class LifecycleController extends ApiController
 
     public function carriers(): JsonResponse
     {
-        return response()->json(['data' => $this->presenter()->collection(Partner::query()->whereRaw("'carrier' = ANY (partner_types)")->orderBy('name')->get())]);
+        return response()->json(['data' => $this->presenter()->collection(Partner::query()->whereRaw("'carrier' MEMBER OF (partner_types)")->orderBy('name')->get())]);
     }
 
     /** Carrier profile: the public tracking link template (`{tracking}` is replaced by the shipment's number). */
     public function updateCarrier(Request $request, string $id): JsonResponse
     {
         $actor = $this->actor($request);
-        $partner = Partner::query()->whereRaw("'carrier' = ANY (partner_types)")->findOrFail($id);
+        $partner = Partner::query()->whereRaw("'carrier' MEMBER OF (partner_types)")->findOrFail($id);
         $template = $request->input('tracking_url_template');
         if ($template !== null && (! str_starts_with((string) $template, 'https://') || ! str_contains((string) $template, '{tracking}') || mb_strlen((string) $template) > 500)) {
             throw DomainException::of(ErrorCode::VALIDATION_FAILED, 'Use an https:// link containing {tracking}.', ['field' => 'tracking_url_template']);
@@ -304,7 +309,7 @@ final class LifecycleController extends ApiController
         if ($account->account_type !== AccountType::SERVICE) {
             throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'API tokens are issued to service accounts only.');
         }
-        $days = min((int) $request->input('expires_in_days', 90), (int) app(\App\Domains\Platform\Config\PlatformConfig::class)->int('security.api_token.max_lifetime_days'));
+        $days = min((int) $request->input('expires_in_days', 90), (int) app(PlatformConfig::class)->int('security.api_token.max_lifetime_days'));
         $token = $account->createToken(mb_substr((string) $request->input('name', 'integration'), 0, 120), ['*'], now()->addDays(max(1, $days)));
         SecurityEvent::log(SecurityEventType::TOKEN_ISSUED, $account->id, null, ['token_id' => $token->accessToken->getKey(), 'issued_by' => $actor->id]);
         $this->audit->record($actor, 'identity.api_token.issued', 'user_accounts', $account->id, null, ['name' => $token->accessToken->name, 'expires_at' => $token->accessToken->expires_at]);
@@ -332,9 +337,9 @@ final class LifecycleController extends ApiController
     public function updateCompany(Request $request): JsonResponse
     {
         $actor = $this->actor($request);
-        $data = \App\Support\Schema\SchemaValidated::from($request);
+        $data = SchemaValidated::from($request);
         $row = DB::table('company_profile')->first();
-        $values = \App\Domains\Organization\Schemas\CompanyProfileSchema::columns($data);
+        $values = CompanyProfileSchema::columns($data);
         foreach (['registered_address', 'operational_address'] as $json) {
             if (array_key_exists($json, $values)) {
                 $values[$json] = $values[$json] === null ? null : json_encode($values[$json]);

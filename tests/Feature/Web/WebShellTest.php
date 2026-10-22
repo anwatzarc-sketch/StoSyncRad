@@ -98,6 +98,28 @@ final class WebShellTest extends TestCase
         $this->actingAs($clerk, 'web')->get('/r/roles')->assertForbidden();
     }
 
+    public function test_role_assignments_are_created_and_revoked_through_the_step_up_administration_routes(): void
+    {
+        $administrator = $this->actorWith(['identity.assignment.read', 'identity.assignment.create', 'identity.assignment.revoke']);
+        $this->actingAs($administrator, 'web')->get('/r/role-assignments')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('resource.can_create', true)
+            ->where('resource.can_update', false)
+            ->where('resource.create_schema', 'role_assignment')
+            ->where('resource.api_create', '/api/v1/admin/role-assignments'));
+        $this->actingAs($administrator, 'web')->get('/r/role-assignments/new')->assertOk()->assertInertia(fn (Assert $page) => $page->component('Resources/Form', false));
+
+        $revoke = collect($this->actingAs($administrator, 'web')->get('/r/role-assignments/'.Str::uuid7())->viewData('page')['props']['resource']['actions'])->firstWhere('name', 'revoke');
+        $this->assertSame(['POST', '/api/v1/admin/role-assignments/{id}/revoke', 'id'], [$revoke['method'], $revoke['uri'], $revoke['parameter']]);
+    }
+
+    public function test_role_assignment_readers_without_create_or_revoke_permissions_get_a_read_only_list(): void
+    {
+        $viewer = $this->actorWith(['identity.assignment.read']);
+        $this->actingAs($viewer, 'web')->get('/r/role-assignments')->assertOk()->assertInertia(fn (Assert $page) => $page->where('resource.can_create', false));
+        $this->actingAs($viewer, 'web')->get('/r/role-assignments/new')->assertForbidden();
+        $this->assertSame([], $this->actingAs($viewer, 'web')->get('/r/role-assignments/'.Str::uuid7())->viewData('page')['props']['resource']['actions']);
+    }
+
     public function test_every_notification_link_opens_an_existing_page(): void
     {
         $this->enablePortal($this->warehouse('NL'.Str::upper(Str::random(4))));

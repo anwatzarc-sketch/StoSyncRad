@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Domains\Messaging\Models;
 
+use App\Domains\Messaging\Enums\NotificationChannel;
 use App\Support\Eloquent\BaseModel;
+use App\Support\Eloquent\Casts\JsonList;
 
 /** Per-account channel choice for an event type. */
 final class NotificationPreference extends BaseModel
@@ -16,7 +18,7 @@ final class NotificationPreference extends BaseModel
     protected function casts(): array
     {
         return [
-            'channels' => \App\Support\Eloquent\Casts\PgTextArray::class.':'.\App\Domains\Messaging\Enums\NotificationChannel::class,
+            'channels' => JsonList::class.':'.NotificationChannel::class,
             'is_muted' => 'boolean',
         ];
     }

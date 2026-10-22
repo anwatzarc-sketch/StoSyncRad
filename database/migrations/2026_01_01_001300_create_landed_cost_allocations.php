@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\Database\Pg;
+use App\Support\Database\Ddl;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -11,7 +11,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('landed_cost_allocations', function (Blueprint $t) {
-            Pg::uuidPrimary($t);
+            Ddl::uuidPrimary($t);
             $t->uuid('allocation_group_id');
             $t->uuid('goods_receipt_id');
             $t->uuid('goods_receipt_line_id');
@@ -23,14 +23,14 @@ return new class extends Migration
             $t->decimal('capitalized_value', 20, 4);
             $t->decimal('expensed_value', 20, 4);
             $t->uuid('created_by')->nullable();
-            $t->timestampTz('created_at');
+            $t->dateTime('created_at', 6);
             $t->foreign('goods_receipt_id')->references('id')->on('goods_receipts')->restrictOnDelete();
             $t->foreign('goods_receipt_line_id')->references('id')->on('goods_receipt_lines')->restrictOnDelete();
             $t->index('goods_receipt_id');
             $t->index('allocation_group_id');
         });
-        Pg::check('landed_cost_allocations', 'chk_lca_values', 'allocated_value >= 0 AND capitalized_value >= 0 AND expensed_value >= 0');
-        Pg::appendOnly('landed_cost_allocations');
+        Ddl::check('landed_cost_allocations', 'chk_lca_values', 'allocated_value >= 0 AND capitalized_value >= 0 AND expensed_value >= 0');
+        Ddl::appendOnly('landed_cost_allocations');
     }
 
     public function down(): void

@@ -24,12 +24,15 @@ return new class extends Migration
                 ->whereColumn('l.lot_number', 'lot.lot_number')->where('l.stock_condition', 'available'))
             ->get(['lot.id', 'lot.lot_number', 'd.document_number', 'd.posted_by']);
 
-        foreach ($lots as $lot) {
-            DB::table('inventory_lots')->where('id', $lot->id)->update(['qc_status' => 'released', 'qc_released_by' => $lot->posted_by,
-                'qc_released_at' => now(), 'updated_at' => now()]);
-            app(AuditRecorder::class)->record(null, 'inventory.lot.qc_released', 'inventory_lots', $lot->id, ['qc_status' => 'pending'],
-                ['qc_status' => 'released'], "Opening stock posted as available on {$lot->document_number}");
-        }
+        // MySQL does not wrap migrations in a transaction; the release and its audit rows commit together.
+        DB::transaction(function () use ($lots) {
+            foreach ($lots as $lot) {
+                DB::table('inventory_lots')->where('id', $lot->id)->update(['qc_status' => 'released', 'qc_released_by' => $lot->posted_by,
+                    'qc_released_at' => now(), 'updated_at' => now()]);
+                app(AuditRecorder::class)->record(null, 'inventory.lot.qc_released', 'inventory_lots', $lot->id, ['qc_status' => 'pending'],
+                    ['qc_status' => 'released'], "Opening stock posted as available on {$lot->document_number}");
+            }
+        });
     }
 
     public function down(): void

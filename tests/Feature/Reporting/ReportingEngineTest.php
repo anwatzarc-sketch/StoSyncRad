@@ -133,7 +133,7 @@ final class ReportingEngineTest extends TestCase
         foreach ([
             ['fields' => ['sku; DROP TABLE x']],
             ['joins' => ['no_such_relationship']],
-            ['fields' => [['expr' => ['fn' => 'pg_sleep', 'args' => [['value' => 10]]], 'as' => 'zz']]],
+            ['fields' => [['expr' => ['fn' => 'sleep', 'args' => [['value' => 10]]], 'as' => 'zz']]],
             ['fields' => ['sku'], 'filters' => ['op' => 'and', 'conditions' => [['field' => 'status', 'operator' => 'eq', 'value' => 'not_a_status']]]],
             ['fields' => ['sku'], 'filters' => ['op' => 'and', 'conditions' => [['field' => 'sku', 'operator' => 'gt', 'value' => 'a']]]],
             ['fields' => ['sku'], 'aggregates' => [['fn' => 'sum', 'field' => 'standard_cost']]],
@@ -169,7 +169,7 @@ final class ReportingEngineTest extends TestCase
             $this->assertDomainError(ErrorCode::PERMISSION_DENIED, fn () => $this->runner()->download($run->id, $this->superAdmin()));
         }
         $this->assertSame(0, DB::table('report_runs')->where('runner_account_id', $admin->id)->whereNotNull('parameters')
-            ->whereRaw("parameters::text LIKE '%quantity_on_hand\": \"3%'")->count(), 'runs store metadata, never results');
+            ->whereRaw("CAST(parameters AS CHAR) LIKE '%quantity_on_hand\": \"3%'")->count(), 'runs store metadata, never results');
     }
 
     public function test_definitions_are_versioned_private_by_default_shareable_and_system_reports_are_read_only(): void

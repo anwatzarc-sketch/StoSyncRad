@@ -92,10 +92,10 @@ final class FulfillmentDatasets implements ProvidesDatasets
                   FROM sales_orders o JOIN warehouses w ON w.id = o.warehouse_id JOIN partners c ON c.id = o.customer_partner_id
                 SQL, array_merge([F::uuid('id', 'Order ID'), F::string('document_number', 'Order'), F::enum('status', 'Status', SalesOrderStatus::class),
                 F::enum('channel', 'Channel', SalesChannel::class)], $wh(), [
-                F::uuid('customer_partner_id', 'Customer ID'), F::string('customer_name', 'Customer'), F::string('external_source', 'External source'),
-                F::string('external_order_id', 'External order'), F::string('currency', 'Currency'), F::money('total', 'Order total', C::OPERATIONAL),
-                F::datetime('confirmed_at', 'Confirmed'), F::datetime('created_at', 'Created'), F::qty('ordered_quantity', 'Ordered qty'), F::qty('delivered_quantity', 'Delivered qty'),
-            ]), 'fulfillment.sales_order.read', warehouseScope: ['warehouse_id'], branchScope: 'branch_id',
+                    F::uuid('customer_partner_id', 'Customer ID'), F::string('customer_name', 'Customer'), F::string('external_source', 'External source'),
+                    F::string('external_order_id', 'External order'), F::string('currency', 'Currency'), F::money('total', 'Order total', C::OPERATIONAL),
+                    F::datetime('confirmed_at', 'Confirmed'), F::datetime('created_at', 'Created'), F::qty('ordered_quantity', 'Ordered qty'), F::qty('delivered_quantity', 'Delivered qty'),
+                ]), 'fulfillment.sales_order.read', warehouseScope: ['warehouse_id'], branchScope: 'branch_id',
                 relationships: [R::many('lines', 'Lines', 'sales_order_lines', 'sales_order_id'), R::to('customer', 'Customer', 'partners', 'customer_partner_id')],
                 defaultSort: [['document_date', 'desc']]),
 
@@ -115,7 +115,7 @@ final class FulfillmentDatasets implements ProvidesDatasets
             new D('shipments', 'Shipments', 'fulfillment', <<<'SQL'
                 SELECT s.id, s.document_number, s.status, s.warehouse_id, w.code AS warehouse_code, w.branch_id, s.sales_order_id, o.document_number AS order_number,
                        o.external_order_id, c.name AS carrier_name, s.tracking_number, s.packed_at, s.handed_over_at, s.delivered_at,
-                       EXTRACT(EPOCH FROM (s.delivered_at - s.handed_over_at)) / 3600.0 AS delivery_hours
+                       TIMESTAMPDIFF(MICROSECOND, s.handed_over_at, s.delivered_at) / 3600000000.0 AS delivery_hours
                   FROM shipments s JOIN warehouses w ON w.id = s.warehouse_id JOIN sales_orders o ON o.id = s.sales_order_id LEFT JOIN partners c ON c.id = s.carrier_partner_id
                 SQL, [
                 F::uuid('id', 'Shipment ID'), F::string('document_number', 'Shipment'), F::enum('status', 'Status', ShipmentStatus::class), F::uuid('warehouse_id', 'Warehouse ID'),

@@ -21,6 +21,7 @@ const busy = ref(false);
 const error = ref<unknown>(null);
 const ready = ref(props.id === null);
 const fieldErrors = computed(() => (error.value instanceof ApiError ? error.value.fieldErrors() : {}));
+const schemaName = computed(() => (props.id === null ? props.resource.create_schema ?? props.resource.schema : props.resource.schema));
 /** Roles are permission lists picked by administrators: edited with the role builder. */
 const isRole = computed(() => props.resource.key === 'roles');
 const rolePermissions = computed({
@@ -69,7 +70,7 @@ async function save() {
     try {
         const body = { ...form.value, ...(version.value !== null ? { version: version.value } : {}) };
         const r = props.id === null
-            ? await api(props.resource.api, { method: 'POST', body })
+            ? await api(props.resource.api_create ?? props.resource.api, { method: 'POST', body })
             : await api(`${props.resource.api}/${props.id}`, { method: 'PATCH', body });
         notify('Saved.');
         router.visit(`/r/${props.resource.key}/${r.data.id}`);
@@ -85,8 +86,8 @@ async function save() {
 <template>
     <PageHeader :title="id ? `Edit ${resource.label.toLowerCase()}` : `New ${resource.label.toLowerCase()}`" :back="id ? `/r/${resource.key}/${id}` : `/r/${resource.key}`" />
     <ErrorSummary :error="error" />
-    <form v-if="resource.schema && ready" class="card space-y-6" novalidate @submit.prevent="save">
-        <SchemaForm v-model="form" :schema-name="resource.schema" :operation="id ? 'update' : 'create'" :errors="fieldErrors" :state="state"
+    <form v-if="schemaName && ready" class="card space-y-6" novalidate @submit.prevent="save">
+        <SchemaForm v-model="form" :schema-name="schemaName":operation="id ? 'update' : 'create'" :errors="fieldErrors" :state="state"
                     :exclude="isRole ? ['version', 'permissions'] : ['version']" />
         <section v-if="isRole">
             <h2 class="mb-2 font-semibold">Permissions</h2>

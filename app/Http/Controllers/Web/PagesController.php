@@ -68,13 +68,18 @@ final class PagesController
         $account = $request->user();
         abort_unless($this->access->hasPermissionAnywhere($account, $cfg['read']) || (isset($cfg['own']) && $this->access->hasPermissionAnywhere($account, $cfg['own'][0])), 403);
         $writable = ($cfg['writer'] ?? null) !== false && $cfg['schema'] !== null;
+        $createRoute = isset($cfg['create_route']) ? $this->router->getRoutes()->getByName($cfg['create_route']) : null;
 
         return [
             'key' => $key,
             'label' => Str::headline(str_replace('-', ' ', $key)),
             'schema' => $cfg['schema'] === null ? null : $cfg['schema']::name(),
             'api' => "/api/v1/$key",
-            'can_create' => $writable && ! empty($cfg['create']) && $this->access->hasPermissionAnywhere($account, $cfg['create']),
+            'create_schema' => $createRoute === null ? null : $createRoute->getAction('schema')[0]::name(),
+            'api_create' => $createRoute === null ? null : '/'.$createRoute->uri(),
+            'can_create' => $createRoute !== null
+                ? $this->access->hasPermissionAnywhere($account, $createRoute->getAction('permission'))
+                : $writable && ! empty($cfg['create']) && $this->access->hasPermissionAnywhere($account, $cfg['create']),
             'can_update' => $writable && ! empty($cfg['update']) && $this->access->hasPermissionAnywhere($account, $cfg['update']),
             'relations' => array_values((array) ($cfg['with'] ?? [])),
             'actions' => $this->actions($account, $key),
@@ -82,7 +87,8 @@ final class PagesController
     }
 
     /**
-     * Record-level API actions of a resource (`/api/v1/{key}/{id}/…`), e.g. submit, approve, post, archive.
+     * Record-level API actions of a resource (`/api/v1/{key}/{id}/…` and the administration routes
+     * `/api/v1/admin/{key}/{id}/…`), e.g. submit, approve, post, archive, revoke.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -93,7 +99,7 @@ final class PagesController
         foreach ($this->router->getRoutes() as $route) {
             $uri = $route->uri();
             $permission = $route->getAction('permission');
-            if ($permission === null || $route->getAction('own_screen') === true || ! preg_match('#^api/v1/'.preg_quote($key, '#').'/\{(id|[a-zA-Z]+Id)\}/([a-z0-9/_-]+)$#', $uri, $m)
+            if ($permission === null || $route->getAction('own_screen') === true || ! preg_match('#^api/v1/(?:admin/)?'.preg_quote($key, '#').'/\{(id|[a-zA-Z]+Id)\}/([a-z0-9/_-]+)$#', $uri, $m)
                 || ! array_intersect($route->methods(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
                 continue;
             }

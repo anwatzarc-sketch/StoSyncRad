@@ -38,18 +38,25 @@ final class DemandService
      */
     public function history(string $itemId, ?string $variantId, ?string $warehouseId, string $from, string $to, string $granularity = 'month'): array
     {
-        $trunc = in_array($granularity, ['day', 'week', 'month', 'quarter', 'year'], true) ? $granularity : 'month';
+        // First day of the period as YYYY-MM-DD (weeks start on Monday, as ISO weeks do).
+        $period = match ($granularity) {
+            'day' => "DATE_FORMAT(m.business_date, '%Y-%m-%d')",
+            'week' => "DATE_FORMAT(m.business_date - INTERVAL WEEKDAY(m.business_date) DAY, '%Y-%m-%d')",
+            'quarter' => "CONCAT(YEAR(m.business_date), '-', LPAD((QUARTER(m.business_date) - 1) * 3 + 1, 2, '0'), '-01')",
+            'year' => "DATE_FORMAT(m.business_date, '%Y-01-01')",
+            default => "DATE_FORMAT(m.business_date, '%Y-%m-01')",
+        };
         $base = fn () => DB::table('stock_movement_lines as ml')->join('stock_movements as m', 'm.id', '=', 'ml.stock_movement_id')
             ->where('ml.item_id', $itemId)
             ->when($variantId !== null, fn ($q) => $q->where('ml.item_variant_id', $variantId))
             ->whereBetween('m.business_date', [$from, $to]);
         $gross = $base()->whereIn('m.movement_type', $this->demandTypes($warehouseId))
             ->when($warehouseId !== null, fn ($q) => $q->where('ml.source_warehouse_id', $warehouseId))
-            ->groupByRaw("date_trunc('$trunc', m.business_date)")->selectRaw("to_char(date_trunc('$trunc', m.business_date), 'YYYY-MM-DD') AS period, SUM(ml.quantity) AS q")
+            ->groupByRaw($period)->selectRaw("$period AS period, SUM(ml.quantity) AS q")
             ->pluck('q', 'period');
         $returns = $base()->whereIn('m.movement_type', [MovementType::CUSTOMER_RETURN->value, MovementType::INTERNAL_RETURN->value])
             ->when($warehouseId !== null, fn ($q) => $q->where('ml.destination_warehouse_id', $warehouseId))
-            ->groupByRaw("date_trunc('$trunc', m.business_date)")->selectRaw("to_char(date_trunc('$trunc', m.business_date), 'YYYY-MM-DD') AS period, SUM(ml.quantity) AS q")
+            ->groupByRaw($period)->selectRaw("$period AS period, SUM(ml.quantity) AS q")
             ->pluck('q', 'period');
         $periods = $gross->keys()->merge($returns->keys())->unique()->sort()->values();
 

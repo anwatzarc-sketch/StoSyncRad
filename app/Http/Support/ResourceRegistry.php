@@ -56,12 +56,15 @@ use App\Domains\Transfers\Services\TransferWorkflow;
  * schema, read/create/update permissions, warehouse scope columns, detail relations and the writer
  * (a domain action or workflow `save()`; null = schema-driven ResourceWriter; false = read-only).
  * Routes, permission bindings and the global schema validation are generated from this table.
+ * `create_route` names a dedicated create endpoint (with its own schema, permission and step-up)
+ * that the web pages use for read-only resources created outside the generic writer.
  */
 final class ResourceRegistry
 {
     /**
      * @return array<string, array{model: class-string, schema: ?class-string, read: string, create?: ?string, update?: ?string,
-     *     warehouse?: array<int, string>, own?: array{0: string, 1: string}, with?: array<int, string>, writer?: mixed, feature?: ?string, server?: array}>
+     *     warehouse?: array<int, string>, own?: array{0: string, 1: string}, with?: array<int, string>, writer?: mixed, feature?: ?string, server?: array,
+     *     create_route?: string}>
      */
     public static function all(): array
     {
@@ -115,7 +118,8 @@ final class ResourceRegistry
             'accounts' => ['model' => Id\UserAccount::class, 'schema' => IdS\UserAccountSchema::class, 'read' => 'identity.account.read',
                 'create' => 'identity.account.create', 'update' => 'identity.account.update', 'writer' => [CreateUserAccountAction::class, 'execute'],
                 'with' => ['person', 'assignments']],
-            'role-assignments' => ['model' => Id\RoleAssignment::class, 'schema' => null, 'read' => 'identity.assignment.read', 'writer' => false],
+            'role-assignments' => ['model' => Id\RoleAssignment::class, 'schema' => null, 'read' => 'identity.assignment.read', 'writer' => false,
+                'create_route' => 'api.v1.admin.assignments.store'],
             'sod-rules' => ['model' => Id\SodRule::class, 'schema' => null, 'read' => 'identity.sod_rule.read', 'writer' => false],
             'approval-policies' => ['model' => Id\ApprovalPolicy::class, 'schema' => null, 'read' => 'identity.approval_policy.read', 'writer' => false],
 

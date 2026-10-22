@@ -90,7 +90,7 @@ final class ExpiryMonitor
             $date = now()->addDays((int) $days)->toDateString();
             foreach (DB::table('inventory_lots')->where('expiry_date', $date)->where('status', LotStatus::ACTIVE->value)->get(['id', 'item_id', 'lot_number']) as $lot) {
                 $already = DB::table('outbox_events')->where('event_type', 'inventory.lot.expiry_warning')->where('aggregate_id', $lot->id)
-                    ->whereRaw("payload->>'horizon_days' = ?", [(string) $days])->exists();
+                    ->whereRaw("payload->>'$.horizon_days' = ?", [(string) $days])->exists();
                 if (! $already) {
                     $this->outbox->publish('inventory.lot.expiry_warning', 'inventory_lots', $lot->id,
                         ['lot_number' => $lot->lot_number, 'item_id' => $lot->item_id, 'expiry_date' => $date, 'horizon_days' => (int) $days]);

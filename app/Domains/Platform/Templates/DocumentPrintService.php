@@ -165,7 +165,7 @@ final class DocumentPrintService
                 $doc = $one('SELECT s.*, w.code AS warehouse_code, w.name AS warehouse_name FROM stocktakes s JOIN warehouses w ON w.id = s.warehouse_id WHERE s.id = ?', [$id]);
                 $showBook = ! $doc['is_blind'] || $this->access->can($actor, 'stocktaking.stocktake.view_book_qty', $doc['warehouse_id']);
                 $lines = $many('SELECT l.line_no, sl.full_path AS location, i.sku, i.name, lt.lot_number, l.stock_condition,
-                    CASE WHEN ?::boolean THEN l.snapshot_quantity END AS book_quantity, l.counted_quantity
+                    CASE WHEN ? = 1 THEN l.snapshot_quantity END AS book_quantity, l.counted_quantity
                     FROM stocktake_lines l JOIN items i ON i.id = l.item_id JOIN storage_locations sl ON sl.id = l.storage_location_id
                     LEFT JOIN inventory_lots lt ON lt.id = l.inventory_lot_id WHERE l.stocktake_id = ? ORDER BY sl.sort_order, sl.full_path, i.sku', [$showBook, $id]);
 

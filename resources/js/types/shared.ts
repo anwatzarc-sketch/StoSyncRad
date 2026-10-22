@@ -112,6 +112,9 @@ export interface ResourceMeta {
     label: string;
     schema: string | null;
     api: string;
+    /** Dedicated create endpoint and its schema, when records are created outside the generic writer. */
+    create_schema: string | null;
+    api_create: string | null;
     can_create: boolean;
     can_update: boolean;
     relations: string[];

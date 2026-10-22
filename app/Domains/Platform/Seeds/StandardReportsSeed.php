@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Domains\Platform\Seeds;
 
+use App\Domains\IdentityAccess\Enums\AccountStatus;
+use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\ReportingEngine\Enums\ReportVisibility;
 use App\Domains\ReportingEngine\Query\QueryCompiler;
-use App\Domains\IdentityAccess\Models\UserAccount;
-use App\Domains\IdentityAccess\Enums\AccountStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -161,7 +161,7 @@ final class StandardReportsSeed extends Seed
             }
             $row = ['name' => $r['name'], 'description' => $r['description'], 'dataset_code' => $r['dataset'],
                 'definition' => json_encode($r['definition'], JSON_THROW_ON_ERROR), 'visibility' => ReportVisibility::SHARED_COMPANY->value,
-                'is_system_seed' => true, 'is_active' => true, 'tags' => '{'.implode(',', $r['tags']).'}', 'updated_at' => now()];
+                'is_system_seed' => true, 'is_active' => true, 'tags' => json_encode(array_values($r['tags']), JSON_THROW_ON_ERROR), 'updated_at' => now()];
             if ($existing === null) {
                 $id = (string) Str::uuid7();
                 DB::table('report_definitions')->insert($row + ['id' => $id, 'code' => $r['code'], 'definition_version' => 1, 'created_at' => now()]);
@@ -181,7 +181,9 @@ final class StandardReportsSeed extends Seed
     {
         $out = [];
         foreach ((array) ($definition['parameters'] ?? []) as $p) {
-            $out[$p['code']] = match ($p['type']) { 'date' => now()->toDateString(), 'integer', 'decimal' => '0', default => 'X' };
+            $out[$p['code']] = match ($p['type']) {
+                'date' => now()->toDateString(), 'integer', 'decimal' => '0', default => 'X'
+            };
         }
 
         return $out;

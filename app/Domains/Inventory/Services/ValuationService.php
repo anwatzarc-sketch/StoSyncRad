@@ -78,20 +78,25 @@ final class ValuationService
         }
         ksort($unique, SORT_STRING);
         $now = now();
-        DB::table('item_cost_projections')->insertOrIgnore(array_map(static fn (array $k) => [
-            'id' => (string) Str::uuid7(), 'item_id' => $k[0], 'item_variant_id' => $k[1], 'warehouse_id' => $k[2],
-            'quantity' => '0', 'total_value' => '0', 'average_cost' => '0', 'created_at' => $now, 'updated_at' => $now,
-        ], array_values($unique)));
-
-        $tuples = implode(', ', array_fill(0, count($unique), '(?::uuid, ?::uuid, ?::uuid)'));
-        $rows = DB::select(
-            "SELECT * FROM item_cost_projections WHERE (item_id, item_variant_id, warehouse_id) IN ($tuples)
-              ORDER BY item_id, item_variant_id, warehouse_id FOR UPDATE",
-            array_merge(...array_values($unique))
-        );
-        foreach ($rows as $row) {
-            $this->projections[$row->item_id.'|'.$row->item_variant_id.'|'.$row->warehouse_id] = $row;
+        // One unique-index point lock per projection in key order; create it only when missing (see
+        // BalanceLocker for why InnoDB needs this shape).
+        foreach ($unique as $sortKey => $key) {
+            $row = $this->lockProjection($key);
+            if ($row === null) {
+                DB::insert('INSERT INTO item_cost_projections (id, item_id, item_variant_id, warehouse_id, quantity, total_value, average_cost, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?) ON DUPLICATE KEY UPDATE id = id',
+                    [(string) Str::uuid7(), ...$key, $now, $now]);
+                $row = $this->lockProjection($key) ?? throw new \LogicException("Cost projection $sortKey is missing after it was created.");
+            }
+            $this->projections[$sortKey] = $row;
         }
+    }
+
+    /** @param  array{0: string, 1: string, 2: string}  $key */
+    private function lockProjection(array $key): ?object
+    {
+        return DB::selectOne('SELECT * FROM item_cost_projections FORCE INDEX (item_cost_projections_identity_uq)
+                               WHERE item_id = ? AND item_variant_id = ? AND warehouse_id = ? FOR UPDATE', $key);
     }
 
     /**
@@ -194,7 +199,7 @@ final class ValuationService
             DB::update('UPDATE item_cost_projections SET quantity = ?, total_value = ?, average_cost = ?, version = version + 1, updated_at = ? WHERE id = ?',
                 [$p->quantity, $p->total_value, $p->average_cost, $now, $p->id]);
             if (Sentinel::is($p->item_variant_id) && Sentinel::is($p->warehouse_id)) {
-                DB::update('UPDATE items SET current_average_cost = ? WHERE id = ? AND current_average_cost IS DISTINCT FROM ?',
+                DB::update('UPDATE items SET current_average_cost = ? WHERE id = ? AND NOT (current_average_cost <=> ?)',
                     [$p->average_cost, $p->item_id, $p->average_cost]);
             }
         }
@@ -225,7 +230,9 @@ final class ValuationService
 
     private function consumeFifo(string $itemId, ?string $variantId, string $bucket, string $qty, string $lineId, ?string $sourceLineId, ?string $fixedCost): string
     {
-        $query = 'SELECT id, remaining_quantity, unit_cost FROM valuation_layers
+        // Without a source line, the open-layers index (item, variant, bucket, status, layer_date, id)
+        // makes index order the FIFO order, so rows are locked oldest-first without a filesort.
+        $query = 'SELECT id, remaining_quantity, unit_cost FROM valuation_layers'.($sourceLineId === null ? ' FORCE INDEX (valuation_layers_open)' : '').'
                    WHERE item_id = ? AND item_variant_id = ? AND warehouse_id = ? AND status = ?';
         $bindings = [$itemId, Sentinel::orId($variantId), $bucket, ValuationLayerStatus::OPEN->value];
         if ($sourceLineId !== null) {

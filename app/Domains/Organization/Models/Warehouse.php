@@ -11,7 +11,7 @@ use App\Domains\Organization\Enums\WarehouseKind;
 use App\Domains\Organization\Enums\WarehouseStatus;
 use App\Domains\Organization\Schemas\WarehouseSchema;
 use App\Support\Eloquent\BaseModel;
-use App\Support\Eloquent\Casts\PgTextArray;
+use App\Support\Eloquent\Casts\JsonList;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -47,7 +47,7 @@ final class Warehouse extends BaseModel
         return [
             'kind' => WarehouseKind::class,
             'status' => WarehouseStatus::class,
-            'capabilities' => PgTextArray::class.':'.WarehouseCapability::class,
+            'capabilities' => JsonList::class.':'.WarehouseCapability::class,
             'address' => 'array',
             'contact' => 'array',
             'operational_calendar' => 'array',

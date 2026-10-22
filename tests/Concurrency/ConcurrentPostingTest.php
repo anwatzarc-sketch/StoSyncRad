@@ -18,7 +18,7 @@ use Tests\TestCase;
 /**
  * Chapter 09 §9.6 / Chapter 15 §15.6 — real concurrent sessions (separate OS processes) racing on
  * the same limited stock. Data is committed (no wrapping transaction) because each worker has its
- * own PostgreSQL session.
+ * own MySQL session.
  */
 final class ConcurrentPostingTest extends TestCase
 {
@@ -110,7 +110,7 @@ final class ConcurrentPostingTest extends TestCase
     {
         $args['start_at'] = microtime(true) + 2.5;   // all workers boot, then fire together
         $env = [
-            'APP_ENV' => 'testing', 'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => 'stosyncrad_test', 'CACHE_STORE' => 'array',
+            'APP_ENV' => 'testing', 'DB_CONNECTION' => 'mysql', 'DB_DATABASE' => 'stosyncrad_test', 'CACHE_STORE' => 'array',
             'NUMBERING_CONNECTION' => '', 'QUEUE_CONNECTION' => 'sync', 'SESSION_DRIVER' => 'array',
         ];
         $processes = [];

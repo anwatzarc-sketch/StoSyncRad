@@ -46,7 +46,7 @@ final class InventoryLocationResolver
     public function createPhysical(StorageLocation $storage): InventoryLocation
     {
         $id = (string) Str::uuid7();
-        DB::table('inventory_locations')->insertOrIgnore([
+        $this->insertIfMissing([
             'id' => $id,
             'location_type' => InventoryLocationType::PHYSICAL->value,
             'warehouse_id' => $storage->warehouse_id,
@@ -89,7 +89,7 @@ final class InventoryLocationResolver
             return $this->memo[$key];
         }
         $code = 'VIRT:'.strtoupper($type->value);
-        $created = DB::table('inventory_locations')->insertOrIgnore([
+        $created = $this->insertIfMissing([
             'id' => (string) Str::uuid7(),
             'location_type' => $type->value,
             'warehouse_id' => null,
@@ -120,7 +120,7 @@ final class InventoryLocationResolver
             $codes = Warehouse::query()->whereIn('id', [$sourceWarehouseId, $destinationWarehouseId])->pluck('code', 'id');
             $name = 'In transit '.($codes[$sourceWarehouseId] ?? '?').' → '.($codes[$destinationWarehouseId] ?? '?');
         }
-        $created = DB::table('inventory_locations')->insertOrIgnore([
+        $created = $this->insertIfMissing([
             'id' => (string) Str::uuid7(),
             'location_type' => InventoryLocationType::IN_TRANSIT->value,
             'warehouse_id' => null,
@@ -148,6 +148,21 @@ final class InventoryLocationResolver
         }
 
         return $location;
+    }
+
+    /**
+     * Insert a location unless one with the same unique identity exists; returns 1 when inserted.
+     * Unlike INSERT IGNORE, foreign-key and CHECK errors still surface.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function insertIfMissing(array $row): int
+    {
+        return DB::affectingStatement(
+            'INSERT INTO inventory_locations ('.implode(', ', array_keys($row)).') VALUES ('.implode(', ', array_fill(0, count($row), '?')).')
+             ON DUPLICATE KEY UPDATE id = id',
+            array_values($row)
+        );
     }
 
     /** Seed every company-level virtual location (Setup Step 7). */

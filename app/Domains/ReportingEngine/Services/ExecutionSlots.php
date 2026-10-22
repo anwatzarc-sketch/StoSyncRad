@@ -6,6 +6,7 @@ namespace App\Domains\ReportingEngine\Services;
 
 use App\Domains\Platform\Config\PlatformConfig;
 use App\Domains\ReportingEngine\Enums\ReportSlotKind;
+use App\Support\Database\AdvisoryLock;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,7 @@ final class ExecutionSlots
             : $this->config->int('reporting.max_export_workers');
 
         return DB::transaction(function () use ($kind, $runId, $timeoutSeconds, $limit) {
-            DB::select('SELECT pg_advisory_xact_lock(hashtext(?))', ['report_slots:'.$kind->value]);
+            AdvisoryLock::forTransaction(DB::connection(), 'report_slots:'.$kind->value);
             DB::table('report_execution_slots')->where('kind', $kind->value)->where('expires_at', '<', now())->delete();
             $active = DB::table('report_execution_slots')->where('kind', $kind->value)->count();
             if ($active >= $limit) {

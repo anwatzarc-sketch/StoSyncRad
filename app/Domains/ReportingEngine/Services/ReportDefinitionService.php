@@ -46,7 +46,7 @@ final class ReportDefinitionService
                 ->orWhere('visibility', ReportVisibility::SHARED_COMPANY->value);
             if ($roleIds !== []) {
                 $q->orWhere(fn ($w) => $w->where('visibility', ReportVisibility::SHARED_ROLES->value)
-                    ->whereRaw('shared_role_ids && ?::uuid[]', ['{'.implode(',', $roleIds).'}']));
+                    ->whereRaw('JSON_OVERLAPS(shared_role_ids, ?)', [json_encode(array_values($roleIds), JSON_THROW_ON_ERROR)]));
             }
         });
     }

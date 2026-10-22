@@ -287,7 +287,7 @@ final class RegistrationService
     /** Suggest (never decide) the existing customer this registration probably belongs to. */
     private function suggestCustomer(string $company, ?string $taxId, string $email): ?string
     {
-        $customers = Partner::query()->whereRaw("partner_types @> ARRAY['customer']::varchar[]")->whereNotIn('status', [PartnerStatus::ARCHIVED->value]);
+        $customers = Partner::query()->whereRaw("'customer' MEMBER OF (partner_types)")->whereNotIn('status', [PartnerStatus::ARCHIVED->value]);
         if ($taxId !== null && trim($taxId) !== '') {
             $match = (clone $customers)->whereRaw('lower(tax_id) = ?', [mb_strtolower(trim($taxId))])->value('id');
             if ($match !== null) {

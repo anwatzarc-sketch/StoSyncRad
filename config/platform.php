@@ -122,11 +122,11 @@ return [
     ],
 
     // Connection used to persist failed-attempt audit rows after a rollback (Chapter 09 §9.9).
-    'failed_attempt_audit_connection' => env('AUDIT_FAILED_ATTEMPT_CONNECTION', 'pgsql_audit'),
+    'failed_attempt_audit_connection' => env('AUDIT_FAILED_ATTEMPT_CONNECTION', 'mysql_audit'),
 
     // Connection for document-number allocation. Null = allocate on the caller's connection
     // (used in tests, where seeded sequences live inside the test transaction).
-    'numbering_connection' => env('NUMBERING_CONNECTION', 'pgsql_numbering'),
+    'numbering_connection' => env('NUMBERING_CONNECTION', 'mysql_numbering'),
 
     // Sentinel UUID used for "absent" position dimensions so unique constraints stay total (Chapter 07 §7.3).
     'sentinel_uuid' => '00000000-0000-7000-8000-000000000000',

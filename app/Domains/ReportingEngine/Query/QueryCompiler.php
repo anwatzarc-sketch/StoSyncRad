@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\ReportingEngine\Query;
 
 use App\Domains\IdentityAccess\Models\UserAccount;
+use App\Domains\IdentityAccess\Permissions\PermissionRegistry;
 use App\Domains\IdentityAccess\Services\Access;
 use App\Domains\Organization\Models\Warehouse;
 use App\Domains\Platform\Config\PlatformConfig;
@@ -15,13 +16,14 @@ use App\Domains\ReportingEngine\Enums\RelativeDateRange;
 use App\Domains\ReportingEngine\Enums\ReportAggregate;
 use App\Domains\ReportingEngine\Enums\ReportFieldType as T;
 use App\Domains\ReportingEngine\Enums\ReportFilterOperator as Op;
+use App\Support\Database\Search;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
 /**
- * Report definition → parameterized SQL over `reporting.*` views (Chapter 10 §10.4):
+ * Report definition → parameterized SQL over the reporting views (Chapter 10 §10.4):
  * validate dataset/fields/joins/operators/expressions/aggregation, inject the runner's warehouse /
  * branch / own-record scope for the base AND every joined dataset, enforce field permissions on
  * every reference, bind every value, allow-list every identifier, apply row caps.
@@ -83,7 +85,7 @@ final class QueryCompiler
             $rel = $base->relationships[$code] ?? throw $this->invalid("`$code` is not a relationship of {$base->label}.");
             $target = $this->catalog->get($rel->target);
             $alias = 't'.($n + 1);
-            $on = array_map(fn ($k) => "t0.\"{$this->col($base, $k[0])}\" = $alias.\"{$this->col($target, $k[1])}\"", $rel->keys);
+            $on = array_map(fn ($k) => "t0.`{$this->col($base, $k[0])}` = $alias.`{$this->col($target, $k[1])}`", $rel->keys);
             $targetScope = $this->authorizeDataset($target, $runner, $alias, $scope);
             $on = array_merge($on, $targetScope['sql']);
             array_push($joinBindings, ...$targetScope['bindings']);
@@ -100,7 +102,7 @@ final class QueryCompiler
             $field = $ds->fields[$code] ?? throw $this->invalid("Unknown field `$ref`.");
             $this->authorizeField($ds, $field, $runner, $ref);
 
-            return ['sql' => "{$a['alias']}.\"{$field->code}\"", 'type' => $field->type->value, 'field' => $field];
+            return ['sql' => "{$a['alias']}.`{$field->code}`", 'type' => $field->type->value, 'field' => $field];
         };
 
         // ---- select list -------------------------------------------------------------------
@@ -204,6 +206,7 @@ final class QueryCompiler
 
         // ---- sort ----------------------------------------------------------------------------
         $order = [];
+        $orderBindings = [];
         $sort = (array) ($definition['sort'] ?? []);
         if ($sort === [] && ! $aggregated) {
             $sort = array_map(fn ($s) => ['field' => $s[0], 'dir' => $s[1]], array_filter($base->defaultSort, fn ($s) => isset($selects[$s[0]])));
@@ -213,7 +216,12 @@ final class QueryCompiler
             $ref = (string) ($s['field'] ?? '');
             $key = str_replace('.', '__', $ref);
             if (isset($selects[$key])) {
-                $order[] = "\"$key\" $dir NULLS LAST";
+                // Inside an expression MySQL would resolve the alias to a same-named view column, so the
+                // NULL test repeats the select expression (and its bound values) instead.
+                $order[] = $this->nullsLast("`$key`", $dir, $selects[$key]['sql']);
+                if ($dir === 'ASC') {
+                    array_push($orderBindings, ...$selects[$key]['bindings']);
+                }
 
                 continue;
             }
@@ -224,10 +232,10 @@ final class QueryCompiler
             if (! $r['field']->sortable) {
                 throw $this->invalid("`$ref` is not sortable.");
             }
-            $order[] = "{$r['sql']} $dir NULLS LAST";
+            $order[] = $this->nullsLast($r['sql'], $dir);
         }
         if (! $aggregated) {
-            $order[] = "t0.\"{$base->primaryKey}\" ASC";   // stable pagination
+            $order[] = "t0.`{$base->primaryKey}` ASC";   // stable pagination
         }
 
         // ---- assemble -------------------------------------------------------------------------
@@ -236,12 +244,12 @@ final class QueryCompiler
         $selectParts = [];
         $bindingsOut = [];
         foreach ($selects as $key => $s) {
-            $selectParts[] = "{$s['sql']} AS \"$key\"";
+            $selectParts[] = "{$s['sql']} AS `$key`";
             array_push($bindingsOut, ...$s['bindings']);
         }
         array_push($bindingsOut, ...$joinBindings);
         $where = array_merge($baseScope['sql'], $where);
-        array_push($bindingsOut, ...$baseScope['bindings'], ...$filterBindings);
+        array_push($bindingsOut, ...$baseScope['bindings'], ...$filterBindings, ...$orderBindings);
         $sql = 'SELECT '.implode(', ', $selectParts)." FROM {$base->view()} t0 ".implode(' ', $joinSql)
             .($where === [] ? '' : ' WHERE '.implode(' AND ', $where));
         if ($aggregated && $groupSql !== []) {
@@ -266,7 +274,7 @@ final class QueryCompiler
         if ($this->structuralOnly) {
             return ['sql' => [], 'bindings' => []];
         }
-        $permissionFeature = app(\App\Domains\IdentityAccess\Permissions\PermissionRegistry::class)->get($d->permission)?->featureFlag;
+        $permissionFeature = app(PermissionRegistry::class)->get($d->permission)?->featureFlag;
         foreach (array_filter([$d->feature, $permissionFeature]) as $flag) {
             if (! $this->config->feature($flag)) {
                 throw DomainException::featureDisabled($flag);
@@ -278,7 +286,7 @@ final class QueryCompiler
             if ($d->ownColumn !== null && $ownPermission !== $d->permission && $this->access->hasPermissionAnywhere($runner, (string) $ownPermission)) {
                 $scope['datasets'][$d->code] = ['own_records' => true];
 
-                return ['sql' => ["$alias.\"{$d->ownColumn}\" = ?::uuid"], 'bindings' => [$runner->id]];
+                return ['sql' => ["$alias.`{$d->ownColumn}` = ?"], 'bindings' => [$runner->id]];
             }
             throw DomainException::of(ErrorCode::PERMISSION_DENIED, "You may not report on {$d->label}.", ['dataset' => $d->code, 'permission' => $d->permission]);
         }
@@ -287,15 +295,29 @@ final class QueryCompiler
         if ($warehouses === '*' || ($d->warehouseScope === [] && $d->branchScope === null)) {
             return ['sql' => [], 'bindings' => []];
         }
-        $array = '{'.implode(',', $warehouses).'}';
         if ($d->warehouseScope !== []) {
-            $parts = array_map(fn ($c) => "$alias.\"$c\" = ANY(?::uuid[])", $d->warehouseScope);
+            $parts = array_map(fn ($c) => $this->inList("$alias.`$c`", $warehouses), $d->warehouseScope);
 
-            return ['sql' => ['('.implode(' OR ', $parts).')'], 'bindings' => array_fill(0, count($parts), $array)];
+            return ['sql' => ['('.implode(' OR ', $parts).')'], 'bindings' => array_merge(...array_fill(0, count($parts), array_values($warehouses)))];
         }
         $branches = Warehouse::query()->whereIn('id', $warehouses)->distinct()->pluck('branch_id')->all();
 
-        return ['sql' => ["$alias.\"{$d->branchScope}\" = ANY(?::uuid[])"], 'bindings' => ['{'.implode(',', $branches).'}']];
+        return ['sql' => [$this->inList("$alias.`{$d->branchScope}`", $branches)], 'bindings' => array_values($branches)];
+    }
+
+    /** `<column> IN (?, …)` for a scope list; an empty list matches nothing. @param  array<int, string>  $ids */
+    private function inList(string $column, array $ids): string
+    {
+        return $ids === [] ? 'FALSE' : "$column IN (".implode(', ', array_fill(0, count($ids), '?')).')';
+    }
+
+    /**
+     * `NULLS LAST` in both directions. MySQL already sorts NULLs last when descending; ascending needs
+     * an explicit NULL test first, on $nullTest when the sort key is a select alias.
+     */
+    private function nullsLast(string $sortKey, string $dir, ?string $nullTest = null): string
+    {
+        return $dir === 'DESC' ? "$sortKey DESC" : '('.($nullTest ?? $sortKey)." IS NULL) ASC, $sortKey ASC";
     }
 
     private function authorizeField(DatasetDefinition $d, DatasetField $f, UserAccount $runner, string $ref): void
@@ -351,7 +373,7 @@ final class QueryCompiler
             ? (array_key_exists($x['param'], $params) ? $params[$x['param']] : throw $this->invalid("Unknown parameter `{$x['param']}`."))
             : $x;
         $value = is_array($value) && ! isset($value['param']) ? array_map($param, $value) : $param($value);
-        $cast = $this->cast($field->type);
+        $ph = $this->placeholder($field->type);
         $v = fn (mixed $x) => $this->value($field, $x, $ref);
 
         switch ($op) {
@@ -368,9 +390,9 @@ final class QueryCompiler
                 foreach ($list as $x) {
                     $bindings[] = $v($x);
                 }
-                $ph = implode(', ', array_fill(0, count($list), "?$cast"));
+                $phs = implode(', ', array_fill(0, count($list), $ph));
 
-                return $op === Op::IN ? "$col IN ($ph)" : "($col IS NULL OR $col NOT IN ($ph))";
+                return $op === Op::IN ? "$col IN ($phs)" : "($col IS NULL OR $col NOT IN ($phs))";
             case Op::BETWEEN:
                 $pair = array_values((array) $value);
                 if (count($pair) !== 2) {
@@ -378,25 +400,29 @@ final class QueryCompiler
                 }
                 array_push($bindings, $v($pair[0]), $v($pair[1]));
 
-                return "$col BETWEEN ?$cast AND ?$cast";
+                return "$col BETWEEN $ph AND $ph";
             case Op::RELATIVE_DATE:
                 $range = RelativeDateRange::tryFrom((string) $value) ?? throw $this->invalid("`$ref`: unknown relative range. Allowed: ".implode(', ', RelativeDateRange::values()).'.');
                 [$from, $to] = $this->relative($range);
                 array_push($bindings, $from, $to);
 
-                return "($col >= ?::date AND $col < ?::date)";
+                return "($col >= CAST(? AS DATE) AND $col < CAST(? AS DATE))";
             case Op::CONTAINS:
             case Op::STARTS_WITH:
             case Op::ENDS_WITH:
                 $esc = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string) $v($value));
-                $bindings[] = match ($op) { Op::CONTAINS => "%$esc%", Op::STARTS_WITH => "$esc%", default => "%$esc" };
+                $bindings[] = match ($op) {
+                    Op::CONTAINS => "%$esc%", Op::STARTS_WITH => "$esc%", default => "%$esc"
+                };
 
-                return "$col ILIKE ?";
+                return Search::likeSql($col);
             default:
                 $bindings[] = $v($value);
-                $sqlOp = match ($op) { Op::EQ => '=', Op::NEQ => '<>', Op::GT => '>', Op::GTE => '>=', Op::LT => '<', Op::LTE => '<=' };
+                $sqlOp = match ($op) {
+                    Op::EQ => '=', Op::NEQ => '<>', Op::GT => '>', Op::GTE => '>=', Op::LT => '<', Op::LTE => '<='
+                };
 
-                return "$col $sqlOp ?$cast";
+                return "$col $sqlOp $ph";
         }
     }
 
@@ -414,17 +440,21 @@ final class QueryCompiler
                 : throw $bad('"'.$x.'" is not one of: '.implode(', ', $f->enumClass::values()).'.'),
             T::INTEGER, T::DECIMAL, T::MONEY, T::QUANTITY => is_numeric($x) ? (string) $x : throw $bad('expected a number.'),
             T::DATE => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $x) ? (string) $x : throw $bad('expected a date (YYYY-MM-DD).'),
-            T::DATETIME => strtotime((string) $x) !== false ? CarbonImmutable::parse((string) $x)->toIso8601String() : throw $bad('expected a date-time.'),
+            T::DATETIME => strtotime((string) $x) !== false ? CarbonImmutable::parse((string) $x)->utc()->format('Y-m-d H:i:s.u') : throw $bad('expected a date-time.'),
             T::BOOLEAN => is_bool($x) ? $x : (in_array($x, ['true', '1', 1], true) ? true : (in_array($x, ['false', '0', 0], true) ? false : throw $bad('expected true or false.'))),
             default => mb_substr((string) $x, 0, 500),
         };
     }
 
-    private function cast(T $type): string
+    /**
+     * Typed placeholder for a bound filter value. Numbers are cast to an exact DECIMAL: MySQL compares a
+     * DECIMAL column with a string as double-precision floats. Date-times are bound as UTC.
+     */
+    private function placeholder(T $type): string
     {
         return match ($type) {
-            T::UUID => '::uuid', T::INTEGER, T::DECIMAL, T::MONEY, T::QUANTITY => '::numeric', T::DATE => '::date',
-            T::DATETIME => '::timestamptz', T::BOOLEAN => '::boolean', default => '::text',
+            T::INTEGER, T::DECIMAL, T::MONEY, T::QUANTITY => 'CAST(? AS DECIMAL(65,20))', T::DATE => 'CAST(? AS DATE)',
+            T::DATETIME => 'CAST(? AS DATETIME(6))', default => '?',
         };
     }
 

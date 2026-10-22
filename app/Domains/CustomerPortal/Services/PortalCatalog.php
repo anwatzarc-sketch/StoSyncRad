@@ -10,6 +10,7 @@ use App\Domains\CustomerPortal\Enums\AvailabilityDisplay;
 use App\Domains\Inventory\Enums\StockCondition;
 use App\Domains\Organization\Enums\InventoryLocationType;
 use App\Domains\Platform\Config\PlatformConfig;
+use App\Support\Database\Search;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use App\Support\Math\Decimal as D;
@@ -35,8 +36,8 @@ final class PortalCatalog
     public function search(?string $term, ?string $categoryId, int $page = 1, int $perPage = 24): array
     {
         $query = $this->visibleItems()
-            ->when($term !== null && trim($term) !== '', fn ($q) => $q->where(fn ($w) => $w->where('name', 'ilike', '%'.trim((string) $term).'%')
-                ->orWhere('sku', 'ilike', '%'.trim((string) $term).'%')->orWhere('description_short', 'ilike', '%'.trim((string) $term).'%')))
+            ->when($term !== null && trim($term) !== '', fn ($q) => $q->where(fn ($w) => $w->whereRaw(Search::like('name'), ['%'.trim((string) $term).'%'])
+                ->orWhereRaw(Search::like('sku'), ['%'.trim((string) $term).'%'])->orWhereRaw(Search::like('description_short'), ['%'.trim((string) $term).'%'])))
             ->when($categoryId !== null && $categoryId !== '', fn ($q) => $q->whereIn('category_id', $this->categoryAndDescendants((string) $categoryId)))
             ->orderBy('name');
         $total = (clone $query)->count();

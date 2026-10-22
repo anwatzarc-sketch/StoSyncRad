@@ -9,6 +9,7 @@ use App\Domains\Catalog\Enums\CategoryStatus;
 use App\Domains\Catalog\Models\ItemCategory;
 use App\Domains\Catalog\Schemas\ItemCategorySchema;
 use App\Domains\IdentityAccess\Models\UserAccount;
+use App\Support\Database\AdvisoryLock;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,7 @@ final class SaveCategoryAction
     public function execute(array $data, ?UserAccount $actor, ?string $id = null): ItemCategory
     {
         return DB::transaction(function () use ($data, $actor, $id) {
-            DB::select("SELECT pg_advisory_xact_lock(hashtext('item_category_tree'))");
+            AdvisoryLock::forTransaction(DB::connection(), 'item_category_tree');
             $creating = $id === null;
             $cat = $creating ? new ItemCategory : ItemCategory::query()->lockForUpdate()->findOrFail($id);
             $oldParent = $cat->parent_id;

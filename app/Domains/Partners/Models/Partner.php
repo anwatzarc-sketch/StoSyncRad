@@ -8,7 +8,7 @@ use App\Domains\Partners\Enums\PartnerStatus;
 use App\Domains\Partners\Enums\PartnerType;
 use App\Domains\Partners\Schemas\PartnerSchema;
 use App\Support\Eloquent\BaseModel;
-use App\Support\Eloquent\Casts\PgTextArray;
+use App\Support\Eloquent\Casts\JsonList;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -32,7 +32,7 @@ final class Partner extends BaseModel
     protected function casts(): array
     {
         return [
-            'partner_types' => PgTextArray::class.':'.PartnerType::class,
+            'partner_types' => JsonList::class.':'.PartnerType::class,
             'status' => PartnerStatus::class,
             'addresses' => 'array',
             'is_internal' => 'boolean',
@@ -54,7 +54,7 @@ final class Partner extends BaseModel
     /** @param  Builder<self>  $query */
     public function scopeOfType(Builder $query, PartnerType $type): void
     {
-        $query->whereRaw('? = ANY(partner_types)', [$type->value]);
+        $query->whereRaw('? MEMBER OF (partner_types)', [$type->value]);
     }
 
     public function canTrade(): bool
