@@ -26,7 +26,11 @@ State: Vue reactive + composables; Inertia shared props carry `auth` (account, e
 
 ## 12.4 App shell
 
-Mobile: top app bar (brand mark, title, warehouse context, notifications, connection state, user menu), content, bottom nav (Overview, Stock, Work, Reports, More — permission-filtered; Reports hidden without `reporting.report.run`). Desktop: collapsible sidebar with permission-filtered sections (Overview, Inventory, Planning, Procurement, Receiving, Transfers, Stock Operations, Sales & Fulfillment, Stocktaking, Products, Partners, Reports, Administration), header (global search, warehouse context, notifications, update indicator, profile). Warehouse context selector lists only warehouses in scope; the server still validates every request.
+Mobile: top app bar (brand mark, title, warehouse context, notifications, connection state, user menu), content, bottom nav (Home, Stock, Work, Reports, More — permission-filtered; Reports hidden without `reporting.report.run`). Desktop: header (global search, warehouse context, notifications, update indicator, profile) and a sidebar with two areas, both server-filtered (`Navigation`):
+- **Daily work** (default): a short, flat list — Home, Stock (search, scan, traceability, lots, serials, movements, reservations, recalls, valuation as one tabbed place), one entry per **workflow hub** (Receive, Transfers & moves, Requests & issues, Sales & delivery, Customers & billing, Counting, Purchasing — `WorkflowCatalog::HUBS`, shown when the person can start something there or read its documents), Reports.
+- **Administration** (control plane, entered from the sidebar footer or the user menu, with "Back to operations"): Catalog (items and all item master data, reorder rules, price lists, tax rates, forecast inputs), Partners, Organization, People & access, Platform, Data (imports, opening balances), Oversight (audit, security events, health, reconciliation).
+
+Warehouse context selector lists only warehouses in scope; the server still validates every request.
 
 ## 12.5 Setup wizard UI
 
@@ -34,10 +38,12 @@ Stepper with progress persistence, preflight panel, live brand preview (shell + 
 
 ## 12.6 Core screens
 
-- **Dashboard** (role-aware cards: tasks, approvals, inbound, transfers awaiting action, requests, low stock, expiring lots, discrepancies, stocktakes, open sales/shipments) → each card links to filtered lists.
+- **Home — "My work"** (`GET /work`): start actions the person may use; queues waiting for them with exact counts, counted where they hold the permission of the awaited action (approvals first; documents a "different actor required" SoD rule forbids them to approve are left out); alerts (below reorder point, lots expiring within 30 days, open recalls, reconciliation differences). A queue with one document opens it, otherwise its hub.
+- **Workflow hubs** (`/work/{hub}`): start buttons, queue tabs with counts (`GET /work/queues/{queue}`, oldest first) and links to every document list. The queues, each document's happy path and the statuses in which each record action applies are declared in `WorkflowCatalog` and pinned to the real routes, enums and permissions by a test.
+- **Record pages** of documents: a stepper of the happy path and a **next step** panel offering only the actions valid in the current status (primary first, the rest under "More"; floor actions open their task screen); edit only in editable statuses. Lists accept `filter[...]` in the URL (deep links from queues and alerts).
 - **Stock search**: SKU/name/barcode/lot/serial, category tree filter, warehouse/location, condition, reorder status; results as cards (mobile) / table (desktop) with explicit quantity buckets (on hand, reserved, available, quarantine, damaged, expired, blocked, in transit).
 - **Item detail** (Odoo-parity tabs + smart buttons; cost fields only with permission).
-- **Receiving** guided flow; **QC** checklist screen; **Put-away** tasks.
+- **Receiving** guided flow (`/tasks/receiving`: pick or scan the arriving purchase order → confirm the warehouse → scan items → quantity, lot/expiry/serials as the item's policies require, condition and rejections → QC checklist → bin, scanned → review → save, submit and post when allowed; `GET /purchase-orders/{id}/receiving-sheet`); **Put-away** tasks (`/tasks/putaway`: open tasks in scope, own first; scan the bin; `GET /putaway-tasks/sheet`).
 - **Transfers**: detail with quantities (requested/approved/dispatched/received/in transit/discrepancy), timeline, valid actions for state, dispatch & receipt wizards with batch verify scanning, discrepancy resolution.
 - **Requests / Picking / Issues**; **Sales orders / Packing / Shipments** (feature-flagged); **Returns**.
 - **Stocktaking**: count screen (blind mode hides book qty), numeric keypad focus, recount flags, variance review.
@@ -45,7 +51,8 @@ Stepper with progress persistence, preflight panel, live brand preview (shell + 
 - **Planning**: replenishment suggestions with included-quantity breakdown; allocation plan grid.
 - **Traceability**: lot/serial trace timeline and branch map; recall screen.
 - **Reports**: catalog, builder, preview, runs, exports (Chapter 10 §10.8).
-- **Administration**: identity & access (Chapter 04 §4.9), platform (Chapter 03 §3.9), audit log, system health.
+- **Administration** (`/admin`, the control plane): master data, organization, identity & access (Chapter 04 §4.9), platform (Chapter 03 §3.9), data imports, audit log, system health.
+- **Requests for people who only request stock** (`read_own`/`create_own`/`cancel_own`): their own requests through `/stock-requests/mine` endpoints — list, open, create, submit, cancel.
 
 ## 12.7 Transactional UX rules
 

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
@@ -48,6 +49,7 @@ watch(scope, () => void load());
 </script>
 
 <template>
+    <AreaTabs area="reports" />
     <PageHeader title="Reports">
         <template #actions>
             <UiButton icon="history" href="/reports/runs">Runs & exports</UiButton>

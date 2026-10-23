@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Domains\IdentityAccess\Services\Access;
 use App\Domains\Platform\Config\PlatformConfig;
 use App\Http\Support\ResourceRegistry;
+use App\Http\Support\ResourceScope;
 use App\Support\Database\Search;
 use App\Support\Exceptions\DomainException;
 use App\Support\Exceptions\ErrorCode;
@@ -33,7 +33,7 @@ use ReflectionNamedType;
  */
 final class ResourceController extends ApiController
 {
-    public function __construct(private readonly Access $access, private readonly PlatformConfig $config) {}
+    public function __construct(private readonly PlatformConfig $config, private readonly ResourceScope $scope) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -42,7 +42,7 @@ final class ResourceController extends ApiController
         /** @var Builder $query */
         $query = $cfg['model']::query();
         $table = $query->getModel()->getTable();
-        $this->scope($query, $cfg, $actor, $request->boolean('mine'));
+        $this->scope->apply($query, $cfg, $actor, $this->isMineRoute($request) || $request->boolean('mine'));
         $schema = $cfg['schema'];
         $columns = Schema::getColumnListing($table);
 
@@ -134,50 +134,15 @@ final class ResourceController extends ApiController
     {
         Str::isUuid($id) || throw DomainException::notFound('Record');
         $query = $cfg['model']::query()->whereKey($id);
-        $this->scope($query, $cfg, $this->actor($request), false);
+        $this->scope->apply($query, $cfg, $this->actor($request), $this->isMineRoute($request));
 
         return $query->first() ?? throw DomainException::notFound(Str::headline(class_basename($cfg['model'])));
     }
 
-    /** Warehouse (and own-record) scope: rows outside it simply do not exist for the caller. */
-    private function scope(Builder $query, array $cfg, $actor, bool $mineOnly): void
+    /** `…/mine` endpoints are bound to the own-record permission and only ever see the caller's records. */
+    private function isMineRoute(Request $request): bool
     {
-        $readable = $this->access->hasPermissionAnywhere($actor, $cfg['read']);
-        $own = $cfg['own'] ?? null;
-        if (! $readable || $mineOnly) {
-            if ($own !== null && $this->access->hasPermissionAnywhere($actor, $own[0])) {
-                $query->where($own[1], $actor->id);
-
-                return;
-            }
-            if (! $readable) {
-                throw DomainException::permissionDenied($cfg['read']);
-            }
-        }
-        $columns = $cfg['warehouse'] ?? [];
-        if ($columns === []) {
-            return;
-        }
-        $allowed = $this->access->warehouseIdsFor($actor, $cfg['read']);
-        if ($allowed === '*') {
-            return;
-        }
-        $query->where(function ($w) use ($columns, $allowed, $own, $actor) {
-            $ids = $allowed === [] ? ['00000000-0000-0000-0000-000000000000'] : $allowed;
-            foreach ($columns as $c) {
-                if (str_contains($c, '@')) {   // `fk@table.warehouse_column`: scope through the parent document
-                    [$fk, $ref] = explode('@', $c, 2);
-                    [$table, $column] = explode('.', $ref, 2);
-                    $w->orWhereIn($fk, fn ($q) => $q->select('id')->from($table)->whereIn($column, $ids));
-
-                    continue;
-                }
-                $w->orWhereIn($c, $ids);
-            }
-            if ($own !== null) {
-                $w->orWhere($own[1], $actor->id);
-            }
-        });
+        return $request->route()?->getAction('variant') === 'mine';
     }
 
     private function write(array $cfg, array $data, $actor, ?string $id): Model

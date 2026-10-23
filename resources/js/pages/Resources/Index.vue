@@ -5,26 +5,53 @@ import DataTable from '@/components/ui/DataTable.vue';
 import EnumSelect from '@/components/ui/EnumSelect.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import { get } from '@/lib/api';
-import { loadEnums, loadSchema, propertyLabel, type SchemaProperty } from '@/lib/meta';
+import { enumLabel, humanize, loadEnums, loadSchema, propertyLabel, type SchemaProperty } from '@/lib/meta';
 import { columnsFor } from '@/lib/display';
+import { useShared } from '@/composables/useShared';
 import type { ResourceMeta } from '@/types/shared';
 
-/** Generic, schema-driven list for any registered resource (search, enum filters, cursor paging). */
+/**
+ * Generic, schema-driven list for any registered resource (search, enum filters, cursor paging).
+ * `?filter[field]=a,b` in the URL (links from work queues and alerts) pre-filters the list and shows
+ * as removable chips.
+ */
 const props = defineProps<{ resource: ResourceMeta }>();
 
+const { nav } = useShared();
 const properties = ref<Record<string, SchemaProperty>>({});
 const rows = ref<Record<string, any>[]>([]);
 const cursor = ref<string | null>(null);
 const loading = ref(false);
 const error = ref<unknown>(null);
-const q = ref(new URLSearchParams(window.location.search).get('q') ?? '');
+const params = new URLSearchParams(window.location.search);
+const q = ref(params.get('q') ?? '');
 const filters = ref<Record<string, string | null>>({});
+const urlFilters = ref<Record<string, string>>(Object.fromEntries([...params.entries()]
+    .filter(([k, v]) => /^filter\[[a-z_]+\]$/.test(k) && v !== '').map(([k, v]) => [k.slice(7, -1), v])));
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-const enumFilters = computed(() => Object.entries(properties.value).filter(([, p]) => p.filterable && p.type === 'enum' && p.enum).slice(0, 3));
+const enumFilters = computed(() => Object.entries(properties.value)
+    .filter(([name, p]) => p.filterable && p.type === 'enum' && p.enum && !(name in urlFilters.value)).slice(0, 3));
 const columns = computed(() => columnsFor(properties.value, rows.value[0]));
+const inStock = computed(() => nav.value.find((s) => s.area === 'stock')?.items.some((i) => i.href === `/r/${props.resource.key}`) ?? false);
+const chips = computed(() => Object.entries(urlFilters.value).map(([name, value]) => {
+    const p = properties.value[name];
+
+    return { name, text: `${propertyLabel(name, p)}: ${value.split(',').map((v) => (p?.enum ? enumLabel(p.enum, v) : humanize(v))).join(' or ')}` };
+}));
+
+function removeFilter(name: string) {
+    const next = { ...urlFilters.value };
+    delete next[name];
+    urlFilters.value = next;
+    const url = new URL(window.location.href);
+    url.searchParams.delete(`filter[${name}]`);
+    window.history.replaceState(window.history.state, '', url);
+}
 
 async function load(append = false) {
     controller?.abort();
@@ -34,7 +61,7 @@ async function load(append = false) {
     try {
         const r = await get(props.resource.api, {
             q: q.value || undefined,
-            filter: Object.fromEntries(Object.entries(filters.value).filter(([, v]) => v)),
+            filter: { ...urlFilters.value, ...Object.fromEntries(Object.entries(filters.value).filter(([, v]) => v)) },
             cursor: append ? cursor.value : undefined,
             per_page: 25,
         }, controller.signal);
@@ -61,15 +88,30 @@ watch(q, () => {
     clearTimeout(timer);
     timer = setTimeout(() => void load(), 300);
 });
-watch(filters, () => void load(), { deep: true });
+watch([filters, urlFilters], () => void load(), { deep: true });
 </script>
 
 <template>
+    <AreaTabs v-if="inStock" area="stock" />
     <PageHeader :title="resource.label">
         <template #actions>
-            <UiButton v-if="resource.can_create" variant="primary" icon="plus" :href="`/r/${resource.key}/new`">New</UiButton>
+            <UiButton v-if="resource.can_create" variant="primary" icon="plus" :href="`/r/${resource.key}/new`">New {{ resource.noun }}</UiButton>
         </template>
     </PageHeader>
+
+    <div v-if="chips.length" class="mb-3 flex flex-wrap gap-2" aria-label="Active filters">
+        <button
+            v-for="c in chips"
+            :key="c.name"
+            type="button"
+            class="inline-flex min-h-9 items-center gap-2 rounded-full border border-brand/30 bg-brand/10 px-3 text-sm text-ink"
+            :aria-label="`Remove filter ${c.text}`"
+            @click="removeFilter(c.name)"
+        >
+            {{ c.text }}
+            <AppIcon name="x" :size="14" />
+        </button>
+    </div>
 
     <div class="card mb-4 grid gap-3 md:grid-cols-4">
         <div class="md:col-span-2">

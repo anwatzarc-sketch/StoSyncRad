@@ -4,6 +4,7 @@ use App\Domains\Platform\Services\PlatformHealth;
 use App\Http\Controllers\Web\BrandController;
 use App\Http\Controllers\Web\MarketingController;
 use App\Http\Controllers\Web\PagesController;
+use App\Http\Support\WorkflowCatalog;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -62,7 +63,15 @@ Route::middleware('auth')->name('app.')->group(function (): void {
     Route::get('/r/{resource}/{id}', [PagesController::class, 'resourceShow'])->where('resource', '[a-z-]+')->whereUuid('id')->name('resources.show');
     Route::get('/r/{resource}/{id}/edit', [PagesController::class, 'resourceEdit'])->where('resource', '[a-z-]+')->whereUuid('id')->name('resources.edit');
 
+    // Workflow hubs (WorkflowCatalog::HUBS): what is waiting, and how to start new work.
+    Route::inertia('/work', 'Work/Index')->name('work.index');
+    Route::get('/work/{hub}', fn (string $hub) => Inertia\Inertia::render('Work/Hub', ['hub' => $hub]))
+        ->where('hub', implode('|', array_keys(WorkflowCatalog::HUBS)))->name('work.hub');
+
     Route::prefix('tasks')->name('tasks.')->group(function (): void {
+        Route::inertia('/receiving', 'Tasks/Receiving')->name('receiving');
+        Route::get('/receiving/{id}', fn (string $id) => Inertia\Inertia::render('Tasks/ReceiveGoods', ['purchaseOrderId' => $id]))->whereUuid('id')->name('receive_goods');
+        Route::inertia('/putaway', 'Tasks/Putaway')->name('putaway');
         Route::get('/transfers/{id}/dispatch', fn (string $id) => Inertia\Inertia::render('Tasks/TransferDispatch', ['transferId' => $id]))->whereUuid('id')->name('dispatch');
         Route::get('/transfers/{id}/receive', fn (string $id) => Inertia\Inertia::render('Tasks/TransferReceive', ['transferId' => $id]))->whereUuid('id')->name('receive');
         Route::get('/stocktakes/{id}/count', fn (string $id) => Inertia\Inertia::render('Tasks/StocktakeCount', ['stocktakeId' => $id]))->whereUuid('id')->name('count');
@@ -70,6 +79,7 @@ Route::middleware('auth')->name('app.')->group(function (): void {
     });
 
     Route::prefix('admin')->name('admin.')->group(function (): void {
+        Route::inertia('/', 'Admin/Index')->name('index');
         foreach (['company' => 'Company', 'config' => 'Configuration', 'brand' => 'Brand', 'templates' => 'Templates', 'lookups' => 'Lookups',
             'numbering' => 'Numbering', 'bundles' => 'Bundles', 'webhooks' => 'Webhooks', 'api-tokens' => 'ApiTokens', 'audit' => 'Audit',
             'security-events' => 'SecurityEvents', 'health' => 'Health'] as $path => $page) {

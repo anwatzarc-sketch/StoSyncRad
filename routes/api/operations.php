@@ -116,6 +116,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->permission('stocktaking.stocktake.count');
     Route::get('pick-lists/{id}/sheet', [TaskSheetController::class, 'pickSheet'])->name('tasks.pick_sheet')->whereUuid('id')
         ->permission('fulfillment.pick_list.read');
+    Route::get('purchase-orders/{id}/receiving-sheet', [TaskSheetController::class, 'receivingSheet'])->name('tasks.receiving_sheet')->whereUuid('id')
+        ->permission('receiving.goods_receipt.create');
+    Route::get('putaway-tasks/sheet', [TaskSheetController::class, 'putawaySheet'])->name('tasks.putaway_sheet')->permission('receiving.putaway.post');
 
     // ---- Reporting: one export endpoint per format; all-runs listing --------------------------------
     foreach ([ReportOutputFormat::PDF, ReportOutputFormat::XLSX, ReportOutputFormat::CSV] as $format) {

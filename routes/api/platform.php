@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\ExchangeController;
 use App\Http\Controllers\Api\IntegrationController;
 use App\Http\Controllers\Api\ReportingController;
 use App\Http\Controllers\Api\StockQueryController;
+use App\Http\Controllers\Api\WorkController;
 use App\Support\Documents\Schemas\DecisionSchema;
 use Illuminate\Support\Facades\Route;
 
@@ -59,6 +60,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('notifications/preferences', [ExchangeController::class, 'preferences'])->name('notifications.preferences')->permission('messaging.notification.manage_own_preferences');
     Route::put('notifications/preferences', [ExchangeController::class, 'setPreference'])->name('notifications.preferences.update')->schema(MsgS\NotificationPreferenceSchema::class)->permission('messaging.notification.manage_own_preferences');
     Route::get('print/{type}/{id}', [ExchangeController::class, 'print'])->name('print')->whereUuid('id')->permission('platform.meta.read');
+
+    // "My work": public route names (platform.public_route_names) — each queue checks its own action permission.
+    Route::get('work', [WorkController::class, 'index'])->name('work');
+    Route::get('work/queues/{queue}', [WorkController::class, 'queue'])->where('queue', '[a-z_-]+\.[a-z_-]+')->name('work.queue');
 
     // ---- Administration ---------------------------------------------------------------------
     Route::prefix('admin')->name('admin.')->group(function (): void {

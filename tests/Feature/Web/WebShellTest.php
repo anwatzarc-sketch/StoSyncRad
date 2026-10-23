@@ -9,6 +9,7 @@ use App\Domains\Platform\Enums\PlatformSetupState;
 use App\Domains\Platform\Services\BrandKitService;
 use App\Domains\Platform\Services\BrandResolver;
 use App\Domains\Platform\Services\SetupState;
+use App\Http\Support\ResourceRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -87,8 +88,9 @@ final class WebShellTest extends TestCase
             ->component('Resources/Index', false)
             ->where('resource.key', 'transfers')
             ->where('resource.can_create', false)
-            ->where('nav', fn ($nav) => collect($nav)->flatMap(fn ($s) => $s['items'])->pluck('href')->contains('/r/transfers')
-                && ! collect($nav)->flatMap(fn ($s) => $s['items'])->pluck('href')->contains('/admin/config')));
+            ->where('nav', fn ($nav) => collect($nav)->firstWhere('area', 'work')['items'] !== null
+                && collect(collect($nav)->firstWhere('area', 'work')['items'])->pluck('href')->contains('/work/transfers')
+                && ! collect($nav)->contains('area', 'admin')));
 
         $actions = collect($this->actingAs($clerk, 'web')->get('/r/transfers/'.Str::uuid7())->viewData('page')['props']['resource']['actions'])->pluck('name');
         $this->assertContains('submit', $actions->all());
@@ -96,6 +98,22 @@ final class WebShellTest extends TestCase
 
         $this->actingAs($clerk, 'web')->get('/r/no-such-resource')->assertNotFound();
         $this->actingAs($clerk, 'web')->get('/r/roles')->assertForbidden();
+    }
+
+    public function test_daily_work_and_administration_are_separate_areas_that_together_reach_every_resource(): void
+    {
+        $nav = collect($this->actingAs($this->superAdmin()->refresh(), 'web')->get('/')->assertOk()->viewData('page')['props']['nav']);
+        $work = collect($nav->firstWhere('area', 'work')['items']);
+        $admin = $nav->where('area', 'admin')->flatMap(fn ($s) => $s['items']);
+
+        $this->assertSame(['/', '/stock'], $work->pluck('href')->take(2)->all(), 'Home and Stock lead the daily navigation');
+        $this->assertSame('/reports', $work->last()['href']);
+        $this->assertTrue($admin->pluck('href')->contains('/admin/config'));
+        $this->assertFalse($work->pluck('href')->contains(fn ($h) => str_starts_with($h, '/admin')), 'administration stays out of the daily navigation');
+
+        $reachable = $nav->flatMap(fn ($s) => $s['items'])->flatMap(fn ($i) => array_merge([$i['href']], $i['match'] ?? []));
+        $missing = collect(array_keys(ResourceRegistry::all()))->reject(fn ($key) => $reachable->contains("/r/$key"))->values()->all();
+        $this->assertSame([], $missing, 'every resource has a place in one of the two areas');
     }
 
     public function test_role_assignments_are_created_and_revoked_through_the_step_up_administration_routes(): void

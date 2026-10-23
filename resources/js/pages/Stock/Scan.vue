@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import BarcodeInput from '@/components/BarcodeInput.vue';
 import { ApiError, get } from '@/lib/api';
 import { formatDate } from '@/lib/format';
@@ -30,6 +31,7 @@ async function scan(value: string) {
 </script>
 
 <template>
+    <AreaTabs area="stock" />
     <PageHeader title="Scan" subtitle="Item, location, lot or serial" />
     <div class="card mx-auto max-w-xl space-y-4">
         <label for="scan-code" class="label">Code</label>

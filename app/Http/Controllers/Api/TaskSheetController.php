@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Domains\Catalog\Enums\QcPolicy;
 use App\Domains\Catalog\Models\Item;
+use App\Domains\Catalog\Models\QcChecklistTemplate;
+use App\Domains\Catalog\Services\CategoryPolicyResolver;
 use App\Domains\IdentityAccess\Services\Access;
 use App\Domains\Inventory\Enums\ReservationStatus;
 use App\Domains\Inventory\Services\PickingPlanner;
 use App\Domains\Organization\Models\Warehouse;
+use App\Domains\Procurement\Models\PurchaseOrder;
+use App\Domains\Procurement\Models\PurchaseOrderLine;
+use App\Domains\Receiving\Services\PutawayService;
 use App\Domains\Stocktaking\Models\Stocktake;
 use App\Domains\Transfers\Models\TransferOrder;
 use App\Support\Exceptions\DomainException;
@@ -116,6 +122,89 @@ final class TaskSheetController extends ApiController
                 'source_id' => $list->source_id, 'version' => $list->version],
             'lines' => $lines->map(fn ($l) => (array) $l)->all(),
         ]]);
+    }
+
+    /**
+     * Purchase-order lines still to receive, with what each item needs captured at the dock (lot,
+     * expiry, serials, quality checklist — resolved through the category policies) and where it should go.
+     */
+    public function receivingSheet(Request $request, CategoryPolicyResolver $policies, PutawayService $putaway, string $id): JsonResponse
+    {
+        $po = PurchaseOrder::query()->findOrFail($id);
+        $this->assertScope($request, 'receiving.goods_receipt.create', $po->warehouse_id);
+        $warehouse = Warehouse::query()->findOrFail($po->warehouse_id);
+        $poLines = PurchaseOrderLine::query()->where('purchase_order_id', $po->id)->orderBy('line_no')->get();
+        $items = Item::query()->whereIn('id', $poLines->pluck('item_id')->unique())->get()->keyBy('id');
+        $barcodes = DB::table('item_barcodes')->whereIn('item_id', $items->keys())->get(['item_id', 'item_variant_id', 'barcode'])->groupBy('item_id');
+        $units = DB::table('units_of_measure')->whereIn('id', $poLines->pluck('uom_id')->merge($items->pluck('base_uom_id'))->filter()->unique())->pluck('code', 'id');
+        $fallbackTemplate = QcChecklistTemplate::query()->where('code', 'visual_inspection')->where('is_active', true)->first();
+        $templates = QcChecklistTemplate::query()->whereIn('id', $items->pluck('qc_checklist_template_id')->filter()->unique())->get()->keyBy('id');
+
+        $lines = [];
+        $suggested = [];
+        foreach ($poLines as $l) {
+            $item = $items[$l->item_id];
+            $remainingBase = D::sub(D::sub((string) $l->base_quantity, (string) $l->received_base_quantity), (string) $l->cancelled_base_quantity);
+            if (! D::isPositive($remainingBase)) {
+                continue;
+            }
+            $qc = $policies->qcPolicy($item);
+            $template = $qc === QcPolicy::NONE ? null : ($templates[$item->qc_checklist_template_id] ?? $fallbackTemplate);
+            $suggested[$item->id] ??= $putaway->suggest($warehouse, $item);
+            $lines[] = [
+                'purchase_order_line_id' => $l->id, 'line_no' => $l->line_no, 'item_id' => $item->id, 'item_variant_id' => $l->item_variant_id,
+                'sku' => $item->sku, 'name' => $item->name, 'barcodes' => ($barcodes[$item->id] ?? collect())->pluck('barcode')->values()->all(),
+                'uom_id' => $l->uom_id, 'uom' => $units[$l->uom_id] ?? null, 'base_uom' => $units[$item->base_uom_id] ?? null,
+                'ordered_quantity' => (string) $l->quantity, 'remaining_base_quantity' => $remainingBase,
+                'remaining_quantity' => D::div($remainingBase, (string) ($l->conversion_factor_snapshot ?: '1'), 6),
+                'tracking_mode' => $policies->trackingMode($item)->value, 'expiry_policy' => $policies->expiryPolicy($item)->value,
+                'lot_number_policy' => $item->lot_number_policy?->value, 'qc_policy' => $qc->value,
+                'qc_checks' => $template === null ? [] : array_values((array) $template->checks),
+                'suggested_storage_location_id' => $suggested[$item->id],
+            ];
+        }
+        $locations = DB::table('storage_locations')->whereIn('id', array_filter(array_unique($suggested)))->get(['id', 'full_path', 'barcode'])->keyBy('id');
+        foreach ($lines as &$line) {
+            $loc = $locations[$line['suggested_storage_location_id']] ?? null;
+            $line['suggested_location_path'] = $loc?->full_path;
+            $line['suggested_location_barcode'] = $loc?->barcode;
+        }
+        unset($line);
+        $reasons = DB::table('lookup_values as v')->join('lookups as k', 'k.id', '=', 'v.lookup_id')->where('k.code', 'rejection_reasons')->where('v.is_active', true)
+            ->orderBy('v.sort_order')->orderBy('v.label')->get(['v.id', 'v.label']);
+
+        return response()->json(['data' => [
+            'purchase_order' => ['id' => $po->id, 'document_number' => $po->document_number, 'status' => $po->status->value, 'supplier_id' => $po->supplier_id,
+                'supplier' => DB::table('partners')->where('id', $po->supplier_id)->value('name'), 'warehouse_id' => $warehouse->id, 'warehouse' => $warehouse->code,
+                'warehouse_name' => $warehouse->name, 'expected_delivery_date' => $po->expected_delivery_date?->toDateString()],
+            'lines' => $lines,
+            'rejection_reasons' => $reasons->map(fn ($r) => (array) $r)->all(),
+        ]]);
+    }
+
+    /** Open put-away tasks of a warehouse (all warehouses in scope when none is given), the caller's own first. */
+    public function putawaySheet(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $allowed = $this->access->warehouseIdsFor($actor, 'receiving.putaway.post');
+        $warehouseId = $request->query('warehouse_id');
+        if ($warehouseId !== null) {
+            $this->assertScope($request, 'receiving.putaway.post', (string) $warehouseId);
+        }
+        $tasks = DB::table('putaway_tasks as t')->join('items as i', 'i.id', '=', 't.item_id')->join('warehouses as w', 'w.id', '=', 't.warehouse_id')
+            ->leftJoin('inventory_lots as lot', 'lot.id', '=', 't.inventory_lot_id')->leftJoin('item_serials as s', 's.id', '=', 't.item_serial_id')
+            ->leftJoin('storage_locations as f', 'f.id', '=', 't.from_storage_location_id')->leftJoin('storage_locations as sg', 'sg.id', '=', 't.suggested_storage_location_id')
+            ->leftJoin('goods_receipts as gr', 'gr.id', '=', 't.goods_receipt_id')
+            ->where('t.status', 'open')
+            ->when($warehouseId !== null, fn ($q) => $q->where('t.warehouse_id', $warehouseId))
+            ->when($warehouseId === null && $allowed !== '*', fn ($q) => $q->whereIn('t.warehouse_id', $allowed === [] ? ['00000000-0000-0000-0000-000000000000'] : $allowed))
+            ->orderByRaw('CASE WHEN t.assigned_to = ? THEN 0 WHEN t.assigned_to IS NULL THEN 1 ELSE 2 END', [$actor->id])->orderBy('t.created_at')->orderBy('t.id')
+            ->limit(500)
+            ->get(['t.id', 't.document_number', 't.version', 't.warehouse_id', 'w.code as warehouse', 'i.sku', 'i.name', 'lot.lot_number', 'lot.expiry_date', 's.serial_number',
+                't.quantity', 't.stock_condition', 'f.full_path as from_location_path', 't.suggested_storage_location_id', 'sg.full_path as suggested_location_path',
+                'sg.barcode as suggested_location_barcode', 't.assigned_to', 'gr.document_number as goods_receipt_number']);
+
+        return response()->json(['data' => ['tasks' => $tasks->map(fn ($t) => (array) $t + ['mine' => $t->assigned_to === $actor->id])->all()]]);
     }
 
     /**

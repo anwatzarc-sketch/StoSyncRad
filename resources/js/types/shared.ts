@@ -47,12 +47,18 @@ export interface NavItem {
     label: string;
     href: string;
     icon: string;
+    /** Other URLs that belong to this entry (a workflow hub's documents, a place's tabs). */
+    match?: string[];
 }
+
+/** `work` = the daily sidebar; `stock` / `reports` = tab strips of those places; `admin` = the control plane. */
+export type NavArea = 'work' | 'stock' | 'reports' | 'admin';
 
 export interface NavSection {
     key: string;
     label: string;
     icon: string;
+    area: NavArea;
     items: NavItem[];
 }
 
@@ -108,11 +114,23 @@ export interface ResourceAction {
     schema: string | null;
     no_body: boolean;
     idempotent: boolean;
+    /** Nested actions: URL placeholder → record field that fills it. */
+    params?: Record<string, string>;
+}
+
+/** How a document is worked (WorkflowCatalog): its happy path and when each action applies. */
+export interface WorkflowMeta {
+    status_enum: string;
+    steps: string[];
+    editable: string[];
+    actions: Record<string, { from: string[]; primary: boolean; task: string | null }>;
 }
 
 export interface ResourceMeta {
     key: string;
     label: string;
+    /** Singular, lower-case name of one record ("purchase order"). */
+    noun: string;
     schema: string | null;
     api: string;
     /** Dedicated create endpoint and its schema, when records are created outside the generic writer. */
@@ -122,6 +140,46 @@ export interface ResourceMeta {
     can_update: boolean;
     relations: string[];
     actions: ResourceAction[];
+    workflow: WorkflowMeta | null;
+}
+
+/** "My work" (GET /api/v1/work). */
+export interface WorkQueue {
+    key: string;
+    label: string;
+    kind: 'approve' | 'act' | 'watch';
+    resource: string;
+    statuses: string[];
+    /** The resource's property schema (null for read-only records). */
+    schema: string | null;
+    hub: string | null;
+    count: number;
+    href: string;
+    own: boolean;
+}
+
+export interface WorkLink {
+    label: string;
+    href: string;
+    icon: string;
+}
+
+export interface WorkHub {
+    key: string;
+    label: string;
+    icon: string;
+    description: string;
+    href: string;
+    start: WorkLink[];
+    queues: WorkQueue[];
+    lists: Array<{ resource: string; label: string; href: string }>;
+}
+
+export interface WorkSummary {
+    hubs: WorkHub[];
+    waiting: WorkQueue[];
+    start: WorkLink[];
+    alerts: Array<WorkLink & { key: string; count: number; href: string | null }>;
 }
 
 /** One configuration key as declared in the registry (Chapter 03 §3.2). */

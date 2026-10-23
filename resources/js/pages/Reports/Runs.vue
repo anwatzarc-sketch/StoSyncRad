@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
@@ -60,6 +61,7 @@ watch(all, () => void load());
 </script>
 
 <template>
+    <AreaTabs area="reports" />
     <PageHeader title="Report runs" back="/reports">
         <template #actions>
             <label v-if="can('reporting.run.read_all')" class="flex min-h-11 items-center gap-2 text-sm">

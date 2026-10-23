@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
@@ -48,6 +49,7 @@ watch(itemId, () => void load());
 </script>
 
 <template>
+    <AreaTabs area="stock" />
     <PageHeader title="Inventory valuation" :subtitle="`Total ${formatMoney(total)} (top 1,000 positions by value)`" />
     <div class="card mb-4 max-w-md">
         <label for="valuation-item" class="label">Item</label>

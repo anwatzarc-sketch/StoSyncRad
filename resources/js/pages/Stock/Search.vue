@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EnumSelect from '@/components/ui/EnumSelect.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
@@ -78,6 +79,7 @@ watch([itemId, warehouseId, condition], () => void load());
 </script>
 
 <template>
+    <AreaTabs area="stock" />
     <PageHeader title="Stock" subtitle="On hand, reserved and available by position" />
     <div class="card mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div>

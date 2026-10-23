@@ -14,108 +14,68 @@ use App\Domains\Platform\Config\PlatformConfig;
  * permission held in some scope, feature enabled (route feature and the permission's own feature);
  * the client only renders what it receives. Resource entries resolve their URL, read permission
  * and feature from ResourceRegistry.
+ *
+ * Two areas: `work` — the daily-operations sidebar (Home, Stock, one entry per workflow hub of
+ * WorkflowCatalog, Reports), with `stock` and `reports` as the tab strips of those places — and
+ * `admin`, the control plane (master data, organization, people & access, platform, oversight),
+ * reached through Administration. An item's `match` lists the other URLs that belong to it.
  */
 final class Navigation
 {
-    /** @var array<int, array{key: string, label: string, icon: string, items: array<int, array<string, string>>}> */
+    /** @var array<int, array{key: string, label: string, icon: string, area: string, items: array<int, array<string, mixed>>}> */
     private const SECTIONS = [
-        ['key' => 'overview', 'label' => 'Overview', 'icon' => 'home', 'items' => [
-            ['label' => 'Dashboard', 'href' => '/', 'icon' => 'home'],
-            ['label' => 'Scan', 'href' => '/scan', 'permission' => 'catalog.item.read', 'icon' => 'scan'],
-            ['label' => 'Notifications', 'href' => '/notifications', 'permission' => 'messaging.notification.read_own', 'icon' => 'bell'],
-        ]],
-        ['key' => 'inventory', 'label' => 'Inventory', 'icon' => 'boxes', 'items' => [
+        ['key' => 'stock', 'label' => 'Stock', 'icon' => 'boxes', 'area' => 'stock', 'items' => [
             ['label' => 'Stock', 'href' => '/stock', 'permission' => 'inventory.stock.read', 'icon' => 'boxes'],
-            ['label' => 'Movements', 'resource' => 'movements'],
-            ['label' => 'Lots', 'resource' => 'lots'],
-            ['label' => 'Serials', 'resource' => 'serials'],
-            ['label' => 'Reservations', 'resource' => 'reservations'],
+            ['label' => 'Scan', 'href' => '/scan', 'permission' => 'catalog.item.read', 'icon' => 'scan'],
             ['label' => 'Traceability', 'href' => '/trace', 'permission' => 'inventory.trace.read', 'icon' => 'route'],
-            ['label' => 'Recalls', 'resource' => 'recalls'],
-            ['label' => 'Reconciliation', 'resource' => 'reconciliation-runs'],
+            ['label' => 'Lots', 'resource' => 'lots', 'icon' => 'tag'],
+            ['label' => 'Serials', 'resource' => 'serials', 'icon' => 'hash'],
+            ['label' => 'Movements', 'resource' => 'movements', 'icon' => 'history'],
+            ['label' => 'Reservations', 'resource' => 'reservations', 'icon' => 'lock'],
+            ['label' => 'Recalls', 'resource' => 'recalls', 'icon' => 'alert'],
             ['label' => 'Valuation', 'href' => '/valuation', 'permission' => 'inventory.valuation.read', 'icon' => 'coins'],
         ]],
-        ['key' => 'planning', 'label' => 'Planning', 'icon' => 'chart', 'items' => [
-            ['label' => 'Replenishment', 'href' => '/planning/replenishment', 'permission' => 'planning.replenishment.read', 'icon' => 'refresh'],
-            ['label' => 'Reorder rules', 'resource' => 'reorder-rules'],
-            ['label' => 'Allocation plans', 'resource' => 'allocation-plans'],
-            ['label' => 'Forecast inputs', 'resource' => 'forecast-inputs'],
-        ]],
-        ['key' => 'procurement', 'label' => 'Procurement', 'icon' => 'cart', 'items' => [
-            ['label' => 'Purchase requests', 'resource' => 'purchase-requests'],
-            ['label' => 'Purchase orders', 'resource' => 'purchase-orders'],
-            ['label' => 'Shipment notices', 'resource' => 'asns'],
-            ['label' => 'Supplier returns', 'resource' => 'supplier-returns'],
-            ['label' => 'Vendor price lists', 'resource' => 'vendor-pricelists'],
-        ]],
-        ['key' => 'receiving', 'label' => 'Receiving', 'icon' => 'inbox', 'items' => [
-            ['label' => 'Goods receipts', 'resource' => 'goods-receipts'],
-            ['label' => 'Put-away tasks', 'resource' => 'putaway-tasks'],
-        ]],
-        ['key' => 'transfers', 'label' => 'Transfers', 'icon' => 'truck', 'items' => [
-            ['label' => 'Transfers', 'resource' => 'transfers'],
-            ['label' => 'Discrepancies', 'resource' => 'transfer-discrepancies'],
-        ]],
-        ['key' => 'commerce', 'label' => 'Customers & billing', 'icon' => 'users', 'items' => [
-            ['label' => 'Customer registrations', 'resource' => 'customer-registrations'],
-            ['label' => 'Customer invitations', 'resource' => 'customer-invitations'],
-            ['label' => 'Quotations', 'resource' => 'quotations'],
-            ['label' => 'Invoices', 'resource' => 'invoices'],
-            ['label' => 'Payment confirmations', 'resource' => 'payment-confirmations'],
-            ['label' => 'Payments', 'resource' => 'payments'],
-            ['label' => 'Tax rates', 'resource' => 'tax-rates'],
-            ['label' => 'Delivery issues', 'resource' => 'delivery-acknowledgements'],
-        ]],
-        ['key' => 'operations', 'label' => 'Stock operations', 'icon' => 'clipboard', 'items' => [
-            ['label' => 'Stock requests', 'resource' => 'stock-requests'],
-            ['label' => 'Stock issues', 'resource' => 'stock-issues'],
-            ['label' => 'Internal returns', 'resource' => 'internal-returns'],
-            ['label' => 'Opening balances', 'resource' => 'opening-balances'],
-            ['label' => 'Relocations', 'resource' => 'relocations'],
-            ['label' => 'Condition changes', 'resource' => 'condition-changes'],
-            ['label' => 'Scrap', 'resource' => 'scrap-documents'],
-        ]],
-        ['key' => 'sales', 'label' => 'Sales & fulfillment', 'icon' => 'bag', 'items' => [
-            ['label' => 'Sales orders', 'resource' => 'sales-orders'],
-            ['label' => 'Pick lists', 'resource' => 'pick-lists'],
-            ['label' => 'Shipments', 'resource' => 'shipments'],
-            ['label' => 'Customer returns', 'resource' => 'customer-returns'],
-        ]],
-        ['key' => 'stocktaking', 'label' => 'Stocktaking', 'icon' => 'list-check', 'items' => [
-            ['label' => 'Stocktakes', 'resource' => 'stocktakes'],
-            ['label' => 'Adjustments', 'resource' => 'stock-adjustments'],
-        ]],
-        ['key' => 'products', 'label' => 'Products', 'icon' => 'tag', 'items' => [
-            ['label' => 'Items', 'resource' => 'items'],
-            ['label' => 'Categories', 'resource' => 'item-categories'],
-            ['label' => 'Variants', 'resource' => 'item-variants'],
-            ['label' => 'Units of measure', 'resource' => 'units'],
-            ['label' => 'Unit categories', 'resource' => 'uom-categories'],
-            ['label' => 'Attributes', 'resource' => 'item-attributes'],
-            ['label' => 'Tags', 'resource' => 'tags'],
-            ['label' => 'QC templates', 'resource' => 'qc-templates'],
-        ]],
-        ['key' => 'partners', 'label' => 'Partners', 'icon' => 'users', 'items' => [
-            ['label' => 'Partners', 'resource' => 'partners'],
-            ['label' => 'Carriers', 'href' => '/carriers', 'permission' => 'partners.carrier.read', 'icon' => 'truck'],
-        ]],
-        ['key' => 'reports', 'label' => 'Reports', 'icon' => 'chart', 'items' => [
+        ['key' => 'reports', 'label' => 'Reports', 'icon' => 'chart', 'area' => 'reports', 'items' => [
             ['label' => 'Reports', 'href' => '/reports', 'permission' => 'reporting.report.run', 'icon' => 'chart'],
             ['label' => 'Report runs', 'href' => '/reports/runs', 'permission' => 'reporting.report.run', 'icon' => 'history'],
-            ['label' => 'Imports', 'href' => '/imports', 'permission' => 'exchange.import.read', 'icon' => 'upload'],
         ]],
-        ['key' => 'administration', 'label' => 'Administration', 'icon' => 'settings', 'items' => [
-            ['label' => 'Accounts', 'resource' => 'accounts'],
-            ['label' => 'People', 'resource' => 'persons'],
-            ['label' => 'Roles', 'resource' => 'roles'],
-            ['label' => 'Role assignments', 'resource' => 'role-assignments'],
-            ['label' => 'Segregation of duties', 'resource' => 'sod-rules'],
-            ['label' => 'Approval policies', 'resource' => 'approval-policies'],
-            ['label' => 'Branches', 'resource' => 'branches'],
-            ['label' => 'Warehouses', 'resource' => 'warehouses'],
-            ['label' => 'Storage locations', 'resource' => 'storage-locations'],
-            ['label' => 'Storage categories', 'resource' => 'storage-categories'],
-            ['label' => 'Put-away rules', 'resource' => 'putaway-rules'],
+
+        // ---- Administration (control plane) ---------------------------------------------------
+        ['key' => 'catalog', 'label' => 'Catalog', 'icon' => 'tag', 'area' => 'admin', 'items' => [
+            ['label' => 'Items', 'resource' => 'items', 'icon' => 'package'],
+            ['label' => 'Categories', 'resource' => 'item-categories', 'icon' => 'list'],
+            ['label' => 'Variants', 'resource' => 'item-variants', 'icon' => 'layers'],
+            ['label' => 'Attributes', 'resource' => 'item-attributes', 'icon' => 'sliders'],
+            ['label' => 'Units of measure', 'resource' => 'units', 'icon' => 'hash'],
+            ['label' => 'Unit categories', 'resource' => 'uom-categories', 'icon' => 'list'],
+            ['label' => 'Tags', 'resource' => 'tags', 'icon' => 'tag'],
+            ['label' => 'QC templates', 'resource' => 'qc-templates', 'icon' => 'list-check'],
+            ['label' => 'Reorder rules', 'resource' => 'reorder-rules', 'icon' => 'refresh'],
+            ['label' => 'Vendor price lists', 'resource' => 'vendor-pricelists', 'icon' => 'coins'],
+            ['label' => 'Tax rates', 'resource' => 'tax-rates', 'icon' => 'coins'],
+            ['label' => 'Forecast inputs', 'resource' => 'forecast-inputs', 'icon' => 'chart'],
+        ]],
+        ['key' => 'partners', 'label' => 'Partners', 'icon' => 'users', 'area' => 'admin', 'items' => [
+            ['label' => 'Partners', 'resource' => 'partners', 'icon' => 'users'],
+            ['label' => 'Carriers', 'href' => '/carriers', 'permission' => 'partners.carrier.read', 'icon' => 'truck'],
+        ]],
+        ['key' => 'organization', 'label' => 'Organization', 'icon' => 'building', 'area' => 'admin', 'items' => [
+            ['label' => 'Branches', 'resource' => 'branches', 'icon' => 'building'],
+            ['label' => 'Warehouses', 'resource' => 'warehouses', 'icon' => 'boxes'],
+            ['label' => 'Storage locations', 'resource' => 'storage-locations', 'icon' => 'route'],
+            ['label' => 'Storage categories', 'resource' => 'storage-categories', 'icon' => 'list'],
+            ['label' => 'Put-away rules', 'resource' => 'putaway-rules', 'icon' => 'inbox'],
+        ]],
+        ['key' => 'access', 'label' => 'People & access', 'icon' => 'key', 'area' => 'admin', 'items' => [
+            ['label' => 'Accounts', 'resource' => 'accounts', 'icon' => 'user'],
+            ['label' => 'People', 'resource' => 'persons', 'icon' => 'users'],
+            ['label' => 'Roles', 'resource' => 'roles', 'icon' => 'key'],
+            ['label' => 'Role assignments', 'resource' => 'role-assignments', 'icon' => 'link'],
+            ['label' => 'Separation of duties', 'resource' => 'sod-rules', 'icon' => 'shield'],
+            ['label' => 'Approval policies', 'resource' => 'approval-policies', 'icon' => 'check'],
+            ['label' => 'API tokens', 'href' => '/admin/api-tokens', 'permission' => 'identity.api_token.read', 'icon' => 'key'],
+        ]],
+        ['key' => 'platform', 'label' => 'Platform', 'icon' => 'settings', 'area' => 'admin', 'items' => [
             ['label' => 'Company', 'href' => '/admin/company', 'permission' => 'platform.company.read', 'icon' => 'building'],
             ['label' => 'Configuration', 'href' => '/admin/config', 'permission' => 'platform.config.read', 'icon' => 'sliders'],
             ['label' => 'Brand', 'href' => '/admin/brand', 'permission' => 'platform.brand.read', 'icon' => 'palette'],
@@ -124,10 +84,17 @@ final class Navigation
             ['label' => 'Numbering', 'href' => '/admin/numbering', 'permission' => 'platform.numbering.manage', 'icon' => 'hash'],
             ['label' => 'Config bundles', 'href' => '/admin/bundles', 'permission' => 'platform.bundle.export', 'icon' => 'package'],
             ['label' => 'Webhooks', 'href' => '/admin/webhooks', 'permission' => 'messaging.webhook.read', 'icon' => 'link'],
-            ['label' => 'API tokens', 'href' => '/admin/api-tokens', 'permission' => 'identity.api_token.read', 'icon' => 'key'],
+        ]],
+        ['key' => 'data', 'label' => 'Data', 'icon' => 'upload', 'area' => 'admin', 'items' => [
+            ['label' => 'Imports', 'href' => '/imports', 'permission' => 'exchange.import.read', 'icon' => 'upload'],
+            ['label' => 'Opening balances', 'resource' => 'opening-balances', 'icon' => 'boxes'],
+        ]],
+        ['key' => 'oversight', 'label' => 'Oversight', 'icon' => 'shield', 'area' => 'admin', 'items' => [
             ['label' => 'Audit log', 'href' => '/admin/audit', 'permission' => 'audit.event.read', 'icon' => 'shield'],
             ['label' => 'Security events', 'href' => '/admin/security-events', 'permission' => 'identity.security_event.read', 'icon' => 'shield'],
             ['label' => 'System health', 'href' => '/admin/health', 'permission' => 'platform.health.read', 'icon' => 'pulse'],
+            ['label' => 'Reconciliation runs', 'resource' => 'reconciliation-runs', 'icon' => 'refresh'],
+            ['label' => 'Reconciliation findings', 'resource' => 'reconciliation-findings', 'icon' => 'alert'],
         ]],
     ];
 
@@ -135,9 +102,10 @@ final class Navigation
         private readonly Access $access,
         private readonly PlatformConfig $config,
         private readonly PermissionRegistry $permissions,
+        private readonly WorkQueues $work,
     ) {}
 
-    /** @return array<int, array{key: string, label: string, icon: string, items: array<int, array{label: string, href: string, icon: string}>}> */
+    /** @return array<int, array{key: string, label: string, icon: string, area: string, items: array<int, array{label: string, href: string, icon: string, match?: array<int, string>}>}> */
     public function for(UserAccount $account): array
     {
         $out = [];
@@ -150,11 +118,38 @@ final class Navigation
                 }
             }
             if ($items !== []) {
-                $out[] = ['key' => $section['key'], 'label' => $section['label'], 'icon' => $section['icon'], 'items' => $items];
+                $out[$section['key']] = ['key' => $section['key'], 'label' => $section['label'], 'icon' => $section['icon'], 'area' => $section['area'], 'items' => $items];
             }
         }
 
-        return $out;
+        return array_values([$this->work($account, $out)] + $out);
+    }
+
+    /**
+     * The daily-operations sidebar: Home, Stock, the workflow hubs this person can use, Reports.
+     *
+     * @param  array<string, array<string, mixed>>  $sections  the resolved place sections (stock, reports, admin…)
+     * @return array<string, mixed>
+     */
+    private function work(UserAccount $account, array $sections): array
+    {
+        $items = [['label' => 'Home', 'href' => '/', 'icon' => 'home']];
+        if (isset($sections['stock'])) {
+            $items[] = ['label' => 'Stock', 'href' => $sections['stock']['items'][0]['href'], 'icon' => 'boxes',
+                'match' => array_column($sections['stock']['items'], 'href')];
+        }
+        foreach ($this->work->visibleHubs($account) as $key) {
+            $hub = WorkflowCatalog::HUBS[$key];
+            $extra = array_values(array_filter(array_column($hub['start'], 'href'), fn (string $h) => ! str_starts_with($h, '/r/')));
+            $items[] = ['label' => $hub['label'], 'href' => "/work/$key", 'icon' => $hub['icon'],
+                'match' => array_merge(array_map(fn (string $r) => "/r/$r", $hub['resources']), $extra)];
+        }
+        if (isset($sections['reports'])) {
+            $items[] = ['label' => 'Reports', 'href' => $sections['reports']['items'][0]['href'], 'icon' => 'chart',
+                'match' => array_column($sections['reports']['items'], 'href')];
+        }
+
+        return ['key' => 'work', 'label' => 'Work', 'icon' => 'home', 'area' => 'work', 'items' => $items];
     }
 
     /** @return array{href: string, permission: ?string, feature: ?string}|null */

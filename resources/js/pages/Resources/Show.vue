@@ -7,6 +7,9 @@ import DataTable from '@/components/ui/DataTable.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import ActionDialog from '@/components/ActionDialog.vue';
 import ItemImagesPanel from '@/components/ItemImagesPanel.vue';
+import WorkflowStepper from '@/components/WorkflowStepper.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
+import { actionsFor, isEditable, taskHref } from '@/lib/workflow';
 import { download, get } from '@/lib/api';
 import { loadEnums, loadSchema, propertyLabel, type SchemaProperty } from '@/lib/meta';
 import { columnsFor, displayValue, PRINT_TYPES } from '@/lib/display';
@@ -46,14 +49,12 @@ async function openFile(file: { id: string; original_filename: string }) {
         error.value = e;
     }
 }
-/** Warehouse-floor actions open their scan-first task screen instead of a form dialog. */
-const TASKS: Record<string, Record<string, string>> = {
-    transfers: { dispatch: 'dispatch', receive: 'receive' },
-    stocktakes: { counts: 'count', recounts: 'count' },
-    'pick-lists': { picks: 'pick' },
-};
-const taskHref = (a: ResourceAction) => (TASKS[props.resource.key]?.[a.name] ? `/tasks/${props.resource.key}/${props.id}/${TASKS[props.resource.key][a.name]}` : null);
-const visibleActions = computed(() => props.resource.actions.filter((a, i, all) => !taskHref(a) || all.findIndex((b) => taskHref(b) === taskHref(a)) === i));
+/** Warehouse-floor actions open their scan-first task screen instead of a form dialog (WorkflowCatalog `task`). */
+const taskOf = (a: ResourceAction) => taskHref(props.resource.workflow, a, props.id);
+/** Only what applies in the record's current status, primary next steps first; the server re-checks everything. */
+const next = computed(() => actionsFor(props.resource.actions, props.resource.workflow, record.value?.status));
+const canEdit = computed(() => props.resource.can_update && isEditable(props.resource.workflow, record.value?.status));
+const DANGER = /(cancel|reject|archive|blacklist|close|lock|deactivate|suspend|revoke|void)/;
 
 async function load() {
     try {
@@ -95,24 +96,46 @@ async function print() {
     <PageHeader :title="title" :subtitle="resource.label" :back="`/r/${resource.key}`">
         <template #actions>
             <UiButton v-if="printType" icon="printer" @click="print">Print</UiButton>
-            <UiButton v-if="resource.can_update" icon="edit" :href="`/r/${resource.key}/${id}/edit`">Edit</UiButton>
+            <UiButton v-if="canEdit" icon="edit" :href="`/r/${resource.key}/${id}/edit`">Edit</UiButton>
         </template>
     </PageHeader>
     <ErrorSummary :error="error" />
 
     <div v-if="record" class="space-y-6">
-        <div v-if="visibleActions.length" class="flex flex-wrap gap-2" role="toolbar" aria-label="Actions">
-            <template v-for="a in visibleActions" :key="a.uri + a.method">
-                <UiButton v-if="taskHref(a)" variant="accent" icon="scan" :href="taskHref(a)!">{{ a.name === 'recounts' ? 'Count' : a.label }}</UiButton>
-                <UiButton
-                    v-else
-                    :variant="/(cancel|reject|archive|blacklist|close|lock|deactivate|suspend|revoke)/.test(a.name) ? 'secondary' : a.idempotent ? 'accent' : 'primary'"
-                    @click="active = a"
-                >
-                    {{ a.label }}
-                </UiButton>
-            </template>
-        </div>
+        <WorkflowStepper v-if="resource.workflow" :workflow="resource.workflow" :status="record.status" :status-label="record.status_label" />
+
+        <!-- Documents: the next step(s) for this status; other resources: every permitted action. -->
+        <section v-if="next.primary.length || next.more.length" :class="['card', resource.workflow ? 'border-brand/30' : '']" aria-labelledby="next-title">
+            <h2 id="next-title" class="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-muted">{{ resource.workflow ? 'Next step' : 'Actions' }}</h2>
+            <div class="flex flex-wrap items-center gap-2">
+                <template v-for="(a, i) in next.primary" :key="a.uri + a.method">
+                    <UiButton v-if="taskOf(a)" :variant="i === 0 ? 'primary' : 'secondary'" icon="scan" :href="taskOf(a)!">{{ a.label }}</UiButton>
+                    <UiButton v-else :variant="i === 0 ? 'primary' : 'secondary'" @click="active = a">{{ a.label }}</UiButton>
+                </template>
+                <template v-if="!resource.workflow">
+                    <UiButton v-for="a in next.more" :key="a.uri + a.method" :variant="DANGER.test(a.name) ? 'secondary' : 'primary'" @click="active = a">
+                        {{ a.label }}
+                    </UiButton>
+                </template>
+                <details v-else-if="next.more.length" class="relative">
+                    <summary class="btn btn-ghost list-none [&::-webkit-details-marker]:hidden">More <AppIcon name="chevron-down" :size="16" /></summary>
+                    <div class="absolute left-0 z-10 mt-1 w-60 rounded-brand border border-line bg-surface py-1 shadow-lg" role="menu">
+                        <template v-for="a in next.more" :key="a.uri + a.method">
+                            <a v-if="taskOf(a)" :href="taskOf(a)!" class="flex min-h-11 items-center px-4 text-sm hover:bg-surface-muted" role="menuitem">{{ a.label }}</a>
+                            <button
+                                v-else
+                                type="button"
+                                :class="['flex min-h-11 w-full items-center px-4 text-left text-sm hover:bg-surface-muted', DANGER.test(a.name) ? 'text-danger' : '']"
+                                role="menuitem"
+                                @click="active = a"
+                            >
+                                {{ a.label }}
+                            </button>
+                        </template>
+                    </div>
+                </details>
+            </div>
+        </section>
 
         <section class="card">
             <div class="mb-3 flex items-center gap-3">

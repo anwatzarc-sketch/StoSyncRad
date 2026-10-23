@@ -23,7 +23,8 @@ const error = ref<unknown>(null);
 
 const DANGER = /(cancel|reject|archive|blacklist|close|lock|deactivate|suspend|revoke|scrap|delete)/;
 const danger = computed(() => !!props.action && DANGER.test(props.action.name));
-const uri = computed(() => props.action?.uri.replace(/\{[a-zA-Z]+\}/, props.record.id) ?? '');
+/** The record's id fills its own placeholder; nested actions name the record field for each other one. */
+const uri = computed(() => props.action?.uri.replace(/\{([a-zA-Z]+)\}/g, (_, p: string) => String(props.action?.params?.[p] ? props.record[props.action.params[p]] : props.record.id)) ?? '');
 const scope = computed(() => `${props.action?.method}:${uri.value}`);
 const fieldErrors = computed(() => (error.value instanceof ApiError ? error.value.fieldErrors() : {}));
 

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web;
 use App\Domains\IdentityAccess\Services\Access;
 use App\Domains\Platform\Config\PlatformConfig;
 use App\Http\Support\ResourceRegistry;
+use App\Http\Support\WorkflowCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
@@ -68,13 +69,18 @@ final class PagesController
         $account = $request->user();
         abort_unless($this->access->hasPermissionAnywhere($account, $cfg['read']) || (isset($cfg['own']) && $this->access->hasPermissionAnywhere($account, $cfg['own'][0])), 403);
         $writable = ($cfg['writer'] ?? null) !== false && $cfg['schema'] !== null;
-        $createRoute = isset($cfg['create_route']) ? $this->router->getRoutes()->getByName($cfg['create_route']) : null;
+        // People who may only see their own records (e.g. stock requesters) use the resource's `…/mine` endpoints.
+        $ownOnly = isset($cfg['own']) && ! $this->access->hasPermissionAnywhere($account, $cfg['read']);
+        $createRoute = isset($cfg['create_route']) ? $this->router->getRoutes()->getByName($cfg['create_route'])
+            : ($ownOnly ? $this->router->getRoutes()->getByName('api.v1.wf.'.str_replace('-', '_', $key).'.mine') : null);
+        $doc = WorkflowCatalog::document($key);
 
         return [
             'key' => $key,
             'label' => Str::headline(str_replace('-', ' ', $key)),
+            'noun' => $doc['noun'] ?? Str::singular(Str::lower(Str::headline($key))),
             'schema' => $cfg['schema'] === null ? null : $cfg['schema']::name(),
-            'api' => "/api/v1/$key",
+            'api' => $ownOnly ? "/api/v1/$key/mine" : "/api/v1/$key",
             'create_schema' => $createRoute === null ? null : $createRoute->getAction('schema')[0]::name(),
             'api_create' => $createRoute === null ? null : '/'.$createRoute->uri(),
             'can_create' => $createRoute !== null
@@ -82,44 +88,72 @@ final class PagesController
                 : $writable && ! empty($cfg['create']) && $this->access->hasPermissionAnywhere($account, $cfg['create']),
             'can_update' => $writable && ! empty($cfg['update']) && $this->access->hasPermissionAnywhere($account, $cfg['update']),
             'relations' => array_values((array) ($cfg['with'] ?? [])),
-            'actions' => $this->actions($account, $key),
+            'actions' => $this->actions($account, $key, $doc),
+            'workflow' => $doc === null ? null : [
+                'status_enum' => $doc['status_enum']::enumCode(),
+                'steps' => $doc['steps'],
+                'editable' => $doc['editable'],
+                'actions' => array_map(fn (array $a) => ['from' => $a['from'], 'primary' => $a['primary'] ?? false, 'task' => $a['task'] ?? null],
+                    $doc['actions'] + ($doc['extra'] ?? [])),
+            ],
         ];
     }
 
     /**
-     * Record-level API actions of a resource (`/api/v1/{key}/{id}/…` and the administration routes
-     * `/api/v1/admin/{key}/{id}/…`), e.g. submit, approve, post, archive, revoke.
+     * Record-level API actions of a resource (`/api/v1/{key}/{id}/…`, own-record `/api/v1/{key}/mine/{id}/…`
+     * and the administration routes `/api/v1/admin/{key}/{id}/…`), e.g. submit, approve, post, archive,
+     * revoke, plus the workflow's nested actions (WorkflowCatalog `extra`, whose other URL parameters
+     * come from record fields). Labels come from the workflow where it names them.
      *
+     * @param  array<string, mixed>|null  $doc  WorkflowCatalog entry
      * @return array<int, array<string, mixed>>
      */
-    private function actions($account, string $key): array
+    private function actions($account, string $key, ?array $doc): array
     {
         $out = [];
         /** @var Route $route */
         foreach ($this->router->getRoutes() as $route) {
             $uri = $route->uri();
             $permission = $route->getAction('permission');
-            if ($permission === null || $route->getAction('own_screen') === true || ! preg_match('#^api/v1/(?:admin/)?'.preg_quote($key, '#').'/\{(id|[a-zA-Z]+Id)\}/([a-z0-9/_-]+)$#', $uri, $m)
+            if ($permission === null || $route->getAction('own_screen') === true
+                || ! preg_match('#^api/v1/(?:admin/)?'.preg_quote($key, '#').'/(mine/)?\{(id|[a-zA-Z]+Id)\}/([a-z0-9/_-]+)$#', $uri, $m)
                 || ! array_intersect($route->methods(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
                 continue;
             }
             if (! $this->access->hasPermissionAnywhere($account, $permission)) {
                 continue;
             }
-            $schema = $route->getAction('schema');
-            $out[] = [
-                'name' => $m[2],
-                'label' => Str::headline(str_replace(['/', '-'], ' ', $m[2])),
-                'method' => array_values(array_diff($route->methods(), ['HEAD']))[0],
-                'uri' => '/'.$uri,
-                'parameter' => $m[1],
-                'permission' => $permission,
-                'schema' => is_array($schema) ? $schema[0]::name() : null,
-                'no_body' => $route->getAction('no_body') === true,
-                'idempotent' => str_ends_with($m[2], 'post') || in_array($m[2], ['dispatch', 'receive', 'deliver', 'handover', 'release'], true),
-            ];
+            [, $mine, $parameter, $name] = $m;
+            if (isset($out[$name]) && ($mine !== '' || ! $out[$name]['mine'])) {
+                continue;   // the full endpoint wins over the own-record one
+            }
+            $out[$name] = $this->action($route, $name, $parameter, $doc['actions'][$name]['label'] ?? null) + ['mine' => $mine !== ''];
+        }
+        foreach ($doc['extra'] ?? [] as $name => $extra) {
+            $route = $this->router->getRoutes()->getByName($extra['route']);
+            if ($route !== null && $this->access->hasPermissionAnywhere($account, $route->getAction('permission'))) {
+                $out[$name] = $this->action($route, $name, 'id', $extra['label'] ?? null) + ['params' => $extra['params'], 'mine' => false];
+            }
         }
 
-        return $out;
+        return array_values(array_map(fn (array $a) => array_diff_key($a, ['mine' => true]), $out));
+    }
+
+    /** @return array<string, mixed> */
+    private function action(Route $route, string $name, string $parameter, ?string $label): array
+    {
+        $schema = $route->getAction('schema');
+
+        return [
+            'name' => $name,
+            'label' => $label ?? Str::headline(str_replace(['/', '-'], ' ', $name)),
+            'method' => array_values(array_diff($route->methods(), ['HEAD']))[0],
+            'uri' => '/'.$route->uri(),
+            'parameter' => $parameter,
+            'permission' => $route->getAction('permission'),
+            'schema' => is_array($schema) ? $schema[0]::name() : null,
+            'no_body' => $route->getAction('no_body') === true,
+            'idempotent' => str_ends_with($name, 'post') || in_array($name, ['dispatch', 'receive', 'deliver', 'deliveries', 'handover', 'release'], true),
+        ];
     }
 }

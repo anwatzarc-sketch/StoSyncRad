@@ -105,7 +105,7 @@ return [
 
     // Route names reachable without a permission binding (Chapter 04 §4.4, Appendix B).
     'public_route_names' => [
-        'api.v1.auth.*', 'api.v1.me', 'api.v1.me.*', 'api.v1.meta.*', 'api.v1.integrations.*',
+        'api.v1.auth.*', 'api.v1.me', 'api.v1.me.*', 'api.v1.meta.*', 'api.v1.integrations.*', 'api.v1.work', 'api.v1.work.*',
         'health.live', 'health.ready', 'setup.*', 'login', 'login.attempt', 'logout', 'app', 'app.*',
         'password.request', 'password.email', 'password.reset', 'password.update',
         'mfa.challenge', 'mfa.verify', 'brand.manifest', 'brand.theme', 'brand.asset', 'offline',

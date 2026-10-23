@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import AreaTabs from '@/components/AreaTabs.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
 import UiButton from '@/components/ui/UiButton.vue';
@@ -71,6 +72,7 @@ onMounted(async () => {
 </script>
 
 <template>
+    <AreaTabs area="stock" />
     <PageHeader title="Traceability" subtitle="Follow a batch or serial across every branch" />
     <div class="card mb-4 grid gap-4 md:grid-cols-2">
         <form class="flex items-end gap-2" @submit.prevent="traceLot">

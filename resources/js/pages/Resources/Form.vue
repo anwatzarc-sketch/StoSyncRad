@@ -84,7 +84,7 @@ async function save() {
 </script>
 
 <template>
-    <PageHeader :title="id ? `Edit ${resource.label.toLowerCase()}` : `New ${resource.label.toLowerCase()}`" :back="id ? `/r/${resource.key}/${id}` : `/r/${resource.key}`" />
+    <PageHeader :title="id ? `Edit ${resource.noun}` : `New ${resource.noun}`" :back="id ? `/r/${resource.key}/${id}` : `/r/${resource.key}`" />
     <ErrorSummary :error="error" />
     <form v-if="schemaName && ready" class="card space-y-6" novalidate @submit.prevent="save">
         <SchemaForm v-model="form" :schema-name="schemaName":operation="id ? 'update' : 'create'" :errors="fieldErrors" :state="state"

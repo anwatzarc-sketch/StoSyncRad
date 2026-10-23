@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Route;
 | SoD and approval limits are enforced inside the services.
 */
 
-$action = function (string $verb, string $uri, string $class, string $method, string $permission, ?string $schema = DecisionSchema::class): \Illuminate\Routing\Route {
+$action = function (string $verb, string $uri, string $class, string $method, string $permission, ?string $schema = DecisionSchema::class): Illuminate\Routing\Route {
     $name = 'wf.'.trim(preg_replace('/[^a-z0-9]+/', '.', strtolower(preg_replace('/\{[^}]+\}/', '', $uri))), '.');
     $route = Route::match([$verb], $uri, WorkflowActionController::class)->workflow($class, $method)->permission($permission)->name($name);
 
@@ -73,8 +73,16 @@ Route::middleware('auth:sanctum')->group(function () use ($post, $get): void {
     $post('transfers/{id}/close', TransferWorkflow::class, 'close', 'transfers.transfer.close');
 
     // ---- Fulfillment ------------------------------------------------------------------------
+    // Own-record endpoints for people who only request stock (read_own / create_own / cancel_own): they
+    // see and act on their own requests only; the workflow checks ownership again.
     Route::post('stock-requests/mine', [ResourceController::class, 'store'])->resource('stock-requests')->name('wf.stock_requests.mine')
         ->permission('fulfillment.stock_request.create_own')->schema(FulS\StockRequestSchema::class, 'create');
+    Route::get('stock-requests/mine', [ResourceController::class, 'index'])->resource('stock-requests')->variant('mine')->name('wf.stock_requests.mine.index')
+        ->permission('fulfillment.stock_request.read_own');
+    Route::get('stock-requests/mine/{id}', [ResourceController::class, 'show'])->resource('stock-requests')->variant('mine')->whereUuid('id')
+        ->name('wf.stock_requests.mine.show')->permission('fulfillment.stock_request.read_own');
+    $post('stock-requests/mine/{id}/submit', Ful\StockRequestWorkflow::class, 'submit', 'fulfillment.stock_request.create_own');
+    $post('stock-requests/mine/{id}/cancel', Ful\StockRequestWorkflow::class, 'cancel', 'fulfillment.stock_request.cancel_own');
     $post('stock-requests/{id}/submit', Ful\StockRequestWorkflow::class, 'submit', 'fulfillment.stock_request.submit');
     $post('stock-requests/{id}/approve', Ful\StockRequestWorkflow::class, 'approve', 'fulfillment.stock_request.approve', FulS\LineApprovalSchema::class);
     $post('stock-requests/{id}/reject', Ful\StockRequestWorkflow::class, 'reject', 'fulfillment.stock_request.reject');
