@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Reporting;
 
 use App\Domains\Catalog\Enums\TrackingMode;
+use App\Domains\IdentityAccess\Enums\MfaPolicy;
+use App\Domains\Platform\Enums\PlatformSetupState;
 use App\Domains\Platform\Seeds\SeedRunner;
 use App\Domains\Platform\Seeds\StandardReportsSeed;
+use App\Domains\Platform\Services\SetupState;
 use App\Domains\ReportingEngine\Enums\ReportOutputFormat;
 use App\Domains\ReportingEngine\Enums\ReportRunStatus;
 use App\Domains\ReportingEngine\Enums\ReportVisibility;
@@ -145,10 +148,17 @@ final class ReportingEngineTest extends TestCase
     public function test_exports_stream_to_private_expiring_files_with_reauthorized_download(): void
     {
         Queue::fake();
+        DB::table('platform_setup')->delete();
+        DB::table('platform_setup')->insert(['id' => (string) Str::uuid7(), 'deployment_id' => (string) Str::uuid7(), 'state' => PlatformSetupState::COMPLETED->value,
+            'completed_steps' => '[]', 'completed_at' => now(), 'locked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        app(SetupState::class)->refresh();
+
         $wh = $this->warehouse('EXP'.Str::upper(Str::random(4)));
         $item = $this->item();
         $this->receive($item, $wh, '3', '4');
         $admin = $this->superAdmin();
+        $this->setConfig('identity.mfa.policy', MfaPolicy::OFF->value);
+        $apiToken = $admin->createToken('report-download-test')->plainTextToken;
         $definition = ['dataset_code' => 'stock_positions', 'definition' => ['fields' => ['warehouse_code', 'item_sku', 'stock_condition', 'quantity_on_hand', 'last_movement_at'],
             'filters' => ['op' => 'and', 'conditions' => [['field' => 'warehouse_id', 'operator' => 'eq', 'value' => $wh->id]]], 'layout' => ['orientation' => 'landscape']]];
 
@@ -159,6 +169,14 @@ final class ReportingEngineTest extends TestCase
             $this->assertSame(ReportRunStatus::COMPLETED, $done->status, (string) $done->error_message);
             $this->assertSame(1, $done->row_count);
             $file = $this->runner()->download($run->id, $admin);
+            if ($format === ReportOutputFormat::CSV) {
+                $response = $this->withToken($apiToken)->getJson("/api/v1/report-runs/{$run->id}");
+                $response->assertOk();
+                $downloadUrl = $response->json('data.download_url');
+                $this->assertIsString($downloadUrl);
+                $this->assertSame("/api/v1/report-runs/{$run->id}/download", parse_url($downloadUrl, PHP_URL_PATH));
+                $this->withToken($apiToken)->get($downloadUrl)->assertOk();
+            }
             $this->assertFileExists($file['path']);
             $this->assertStringEndsWith('.'.$format->value, $file['filename']);
             if ($format === ReportOutputFormat::CSV) {

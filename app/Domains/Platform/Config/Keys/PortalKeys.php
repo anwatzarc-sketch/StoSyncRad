@@ -38,7 +38,8 @@ final class PortalKeys implements ProvidesConfigKeys
             self::int('portal.quotation.validity_days', 14, 'Quotation validity', 'Default days a sent quotation can be accepted.', 'G', 1, 365),
             self::int('portal.evidence.max_file_mb', 10, 'Evidence file size', 'Largest payment evidence file (MB).', 'G', 1, 25),
             self::int('portal.evidence.max_files', 5, 'Evidence files per submission', 'Most evidence files attached to one payment confirmation.', 'G', 1, 10),
-            self::pct('billing.invoice.tax_rate_percent', '0', 'Fallback invoice tax rate (%)', 'Used only when no tax rate is marked as default under Customers & billing → Tax rates.'),
+            self::pct('billing.invoice.tax_rate_percent', '0', 'Fallback invoice tax rate (%)', 'Used only when no tax rate is marked as default under Customers & billing → Tax rates.')
+                ->managedBy('billing.tax.manage'),
             self::enum('billing.invoice.basis', InvoiceBasis::class, 'ordered', 'Invoice from orders',
                 'ordered: bill the ordered quantity (advance billing); delivered: bill only what has been delivered.'),
             self::int('billing.invoice.default_due_days', 30, 'Default payment due (days)', 'Days until an invoice is due when the customer has no payment terms.', 'G', 0, 365),

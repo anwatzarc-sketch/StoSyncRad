@@ -7,11 +7,12 @@ namespace Tests\Feature\Api;
 use App\Domains\IdentityAccess\Enums\AccountStatus;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\IdentityAccess\Services\StepUpVerifier;
+use App\Domains\Platform\Config\PlatformConfig;
 use App\Domains\Platform\Enums\PlatformSetupState;
-use App\Domains\Platform\Services\ConfigBundleService;
-use App\Domains\Platform\Services\SetupState;
 use App\Domains\Platform\Seeds\DocumentSequencesSeed;
 use App\Domains\Platform\Seeds\SeedRunner;
+use App\Domains\Platform\Services\ConfigBundleService;
+use App\Domains\Platform\Services\SetupState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -153,14 +154,48 @@ final class ApiSurfaceTest extends TestCase
         $this->assertTrue($dry['dry_run']);
         $this->assertSame(1, $dry['sections']['configuration']['updated']);
         $this->assertContains('checksum', array_column($dry['warnings'], 'section'), 'edits after export are reported');
-        $this->assertSame(9, app(\App\Domains\Platform\Config\PlatformConfig::class)->int('stock.backdating_window_days'), 'dry run writes nothing');
+        $this->assertSame(9, app(PlatformConfig::class)->int('stock.backdating_window_days'), 'dry run writes nothing');
 
         $report = $this->browser($admin, steppedUp: true)->postJson('/api/v1/admin/config-bundle', $bundle)->assertOk()->json('data');
         $this->assertSame(1, $report['sections']['configuration']['updated']);
-        $this->assertSame(4, app(\App\Domains\Platform\Config\PlatformConfig::class)->int('stock.backdating_window_days'));
+        $this->assertSame(4, app(PlatformConfig::class)->int('stock.backdating_window_days'));
 
         $this->browser($admin, steppedUp: true)->postJson('/api/v1/admin/config-bundle', ['format' => 'other'] + $bundle)
             ->assertStatus(422)->assertJsonPath('code', 'VALIDATION_FAILED');
+    }
+
+    public function test_billing_tax_manager_can_edit_the_fallback_invoice_tax_rate(): void
+    {
+        $actor = $this->actorWith(['platform.config.read', 'billing.tax.manage']);
+        $configuration = $this->browser($actor)->getJson('/api/v1/admin/config')->assertOk()->json('data');
+        $taxRate = collect($configuration)->firstWhere('key', 'billing.invoice.tax_rate_percent');
+        $this->assertTrue($taxRate['can_manage']);
+
+        $this->browser($actor)->putJson('/api/v1/admin/config/billing.invoice.tax_rate_percent', [
+            'value' => '17.5',
+            'scope_type' => 'global',
+        ])->assertOk()->assertJsonPath('data.effective', '17.5');
+
+        $this->assertDatabaseHas('configuration_entries', [
+            'key' => 'billing.invoice.tax_rate_percent',
+            'scope_type' => 'global',
+        ]);
+        $this->assertSame('17.5', app(PlatformConfig::class)->get('billing.invoice.tax_rate_percent'));
+    }
+
+    public function test_configuration_reader_without_billing_tax_permission_cannot_edit_the_fallback_invoice_tax_rate(): void
+    {
+        $actor = $this->actorWith(['platform.config.read']);
+        $configuration = $this->browser($actor)->getJson('/api/v1/admin/config')->assertOk()->json('data');
+        $taxRate = collect($configuration)->firstWhere('key', 'billing.invoice.tax_rate_percent');
+        $this->assertFalse($taxRate['can_manage']);
+
+        $this->browser($actor)->putJson('/api/v1/admin/config/billing.invoice.tax_rate_percent', [
+            'value' => '17.5',
+            'scope_type' => 'global',
+        ])->assertForbidden();
+
+        $this->assertDatabaseMissing('configuration_entries', ['key' => 'billing.invoice.tax_rate_percent']);
     }
 
     public function test_report_exports_are_bound_per_format(): void

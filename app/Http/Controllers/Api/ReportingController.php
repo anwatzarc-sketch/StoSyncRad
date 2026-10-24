@@ -160,7 +160,7 @@ final class ReportingController extends ApiController
         $data = $this->presenter()->model($run);
         unset($data['file_path'], $data['backend_pid'], $data['authorized_scope_snapshot']);
         if ($run->file_path !== null && $run->runner_account_id === $actor->id) {
-            $data['download_url'] = URL::temporarySignedRoute('report_runs.download', now()->addMinutes(10), ['id' => $run->id]);
+            $data['download_url'] = URL::temporarySignedRoute('api.v1.report_runs.download', now()->addMinutes(10), ['id' => $run->id]);
         }
 
         return response()->json(['data' => $data]);
