@@ -11,6 +11,7 @@ import { get } from '@/lib/api';
 import { formatDate, formatQuantity, roundDecimal } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { usePosting } from '@/composables/usePosting';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Transfer receipt with batch verification (Chapter 08 §8.6): scan each arriving lot/serial — it must
@@ -32,6 +33,24 @@ const { busy, error, post } = usePosting(`receive:${props.transferId}`);
 const short = (r: Row) => Number(roundDecimal(String(Number(r.outstanding) - Number(r.accepted || 0) - Number(r.damaged || 0)), 6)) > 0;
 const touched = computed(() => rows.value.filter((r) => Number(r.accepted) > 0 || Number(r.damaged) > 0 || Number(r.excess) > 0 || r.shortage));
 const mismatches = computed(() => rows.value.filter((r) => r.mismatch).length);
+/** Next action: verify the next tracked line by scanning, then post what arrived. */
+const nextActions = computed<NextAction[]>(() => {
+    if (!header.value) {
+        return [];
+    }
+    if (!rows.value.length) {
+        return [{ label: 'Open the transfer', icon: 'truck', href: `/r/transfers/${props.transferId}`, hint: 'Nothing is waiting to be received on this transfer.' }];
+    }
+    const unverified = rows.value.find((r) => (r.lot_number || r.serial_number) && !r.scanned);
+    if (unverified) {
+        return [{ label: `Scan ${unverified.serial_number ? `serial ${unverified.serial_number}` : `lot ${unverified.lot_number}`}`, icon: 'scan',
+            onClick: () => document.getElementById('receive-scan')?.focus(), hint: `Verify ${unverified.sku} from ${unverified.dispatch_number} as it comes off the vehicle.` }];
+    }
+
+    return touched.value.length
+        ? [{ label: 'Post the receipt', icon: 'check', onClick: () => void receive(), hint: `${touched.value.length} line(s) counted. Anything not received stays in transit or is reported short.` }]
+        : [{ label: 'Accept all untracked lines', icon: 'check', onClick: acceptAll, hint: 'Enter what arrived on each line, or accept everything as dispatched.' }];
+});
 
 onMounted(async () => {
     try {
@@ -83,7 +102,7 @@ async function receive() {
 
 <template>
     <PageHeader :title="header ? `Receive ${header.document_number}` : 'Receive'" :subtitle="header ? `${header.source_warehouse} → ${header.destination_warehouse}` : null"
-                :back="`/r/transfers/${transferId}`" />
+                :back="`/r/transfers/${transferId}`" back-label="transfer" :next="nextActions" />
     <ErrorSummary :error="loadError ?? error" />
 
     <div class="card mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">

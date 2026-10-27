@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { nextSetupStep } from '@/lib/adminFlow';
+import { useShared } from '@/composables/useShared';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get, put } from '@/lib/api';
 import { enumLabel, loadEnums } from '@/lib/meta';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /** Document numbering patterns per document type: tokens {PREFIX} {WH} {BR} {YYYY} {YY} {MM} {SEQ:n}. */
+const { nav } = useShared();
+/** Next action: the next going-live step (lib/adminFlow). */
+const nextActions = computed<NextAction[]>(() => [nextSetupStep('/admin/numbering', nav.value)]
+    .filter((a): a is NextAction => !!a));
 const rows = ref<Record<string, any>[]>([]);
 const error = ref<unknown>(null);
 
@@ -41,7 +48,7 @@ onMounted(async () => {
 </script>
 
 <template>
-    <PageHeader title="Document numbering" />
+    <PageHeader title="Document numbering" :next="nextActions" />
     <ErrorSummary :error="error" />
     <ul class="space-y-3">
         <li v-for="r in rows" :key="r.id" class="card">

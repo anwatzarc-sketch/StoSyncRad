@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AreaTabs from '@/components/AreaTabs.vue';
 import BarcodeInput from '@/components/BarcodeInput.vue';
 import { ApiError, get } from '@/lib/api';
 import { formatDate } from '@/lib/format';
+import type { NextAction } from '@/types/shared';
 
 /** Scan anything (item, variant, location, lot, serial) and jump to it. Scanning never posts. */
 const code = ref('');
@@ -13,6 +14,24 @@ const hit = ref<Record<string, any> | null>(null);
 const notFound = ref<string | null>(null);
 const busy = ref(false);
 const scanned = ref('');
+
+/** Next action: where the scanned code leads, else scanning one. */
+const nextActions = computed<NextAction[]>(() => {
+    const h = hit.value;
+    if (!h) {
+        return [{ label: 'Scan a code', icon: 'scan', onClick: () => document.getElementById('scan-code')?.focus(), hint: 'Point the scanner at an item, bin, lot or serial label.' }];
+    }
+    const go: Record<string, NextAction | null> = {
+        item: { label: 'Show stock', icon: 'boxes', href: `/stock/items/${h.item_id ?? h.id}` },
+        variant: { label: 'Show stock', icon: 'boxes', href: `/stock/items/${h.item_id ?? h.id}` },
+        location: { label: 'Open location', icon: 'route', href: `/r/storage-locations/${h.storage_location_id}` },
+        serial: { label: 'Trace serial', icon: 'route', href: `/trace?serial=${encodeURIComponent(scanned.value)}` },
+        lot: h.matches?.length ? { label: `Trace lot ${h.matches[0].lot_number}`, icon: 'route', href: `/trace?lot=${h.matches[0].inventory_lot_id}` } : null,
+    };
+    const action = go[h.type];
+
+    return action ? [action, { label: 'Scan another', icon: 'scan', onClick: () => document.getElementById('scan-code')?.focus() }] : [];
+});
 
 async function scan(value: string) {
     busy.value = true;
@@ -32,7 +51,7 @@ async function scan(value: string) {
 
 <template>
     <AreaTabs area="stock" />
-    <PageHeader title="Scan" subtitle="Item, location, lot or serial" />
+    <PageHeader title="Scan" subtitle="Item, location, lot or serial" :next="nextActions" />
     <div class="card mx-auto max-w-xl space-y-4">
         <label for="scan-code" class="label">Code</label>
         <BarcodeInput id="scan-code" v-model="code" autofocus @scan="scan" />

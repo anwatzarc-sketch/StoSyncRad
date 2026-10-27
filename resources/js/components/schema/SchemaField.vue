@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import FormField from '@/components/ui/FormField.vue';
 import EnumSelect from '@/components/ui/EnumSelect.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
 import PasswordInput from '@/components/ui/PasswordInput.vue';
 import BarcodeInput from '@/components/BarcodeInput.vue';
 import LinesEditor from './LinesEditor.vue';
@@ -72,6 +73,15 @@ const scalarList = computed({
     get: () => (Array.isArray(props.modelValue) ? (props.modelValue as unknown[]).join('\n') : ''),
     set: (text: string) => emit('update:modelValue', text.split('\n').map((s) => s.trim()).filter(Boolean)),
 });
+
+/** Lists of references (a recall's lots, a pick wave's orders): one picker per chosen record, one to add. */
+const referenceList = computed(() => (Array.isArray(props.modelValue) ? (props.modelValue as string[]) : []));
+const addReference = (value: string | null) => {
+    if (value && !referenceList.value.includes(value)) {
+        emit('update:modelValue', [...referenceList.value, value]);
+    }
+};
+const removeReference = (index: number) => emit('update:modelValue', referenceList.value.filter((_, i) => i !== index));
 
 function onInput(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -158,6 +168,16 @@ function onMaskedInput(value: string) {
                 :invalid="!!error"
                 @update:model-value="emit('update:modelValue', $event)"
             />
+            <div v-else-if="p.type === 'array' && p.item_references" class="space-y-2">
+                <div v-for="(chosen, i) in referenceList" :key="chosen" class="flex items-center gap-2">
+                    <ReferencePicker :id="`${id}-${i}`" class="min-w-0 flex-1" :model="p.item_references" :model-value="chosen" disabled />
+                    <button type="button" class="btn btn-ghost px-2" :aria-label="`Remove ${label} ${i + 1}`" :disabled="disabled" @click="removeReference(i)">
+                        <AppIcon name="x" :size="16" />
+                    </button>
+                </div>
+                <ReferencePicker :id="id" :key="referenceList.length" :model="p.item_references" :model-value="null" :disabled="disabled" :invalid="!!error"
+                                 @update:model-value="addReference" />
+            </div>
             <textarea
                 v-else-if="p.type === 'array'"
                 :id="id"

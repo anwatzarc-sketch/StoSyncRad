@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { formatDate, formatMoney } from '@/lib/format';
+import type { NextAction } from '@/types/shared';
 
 const rows = ref<Array<Record<string, any>>>([]);
 const loaded = ref(false);
 const error = ref<unknown>(null);
+const nextActions = computed<NextAction[]>(() => {
+    const ready = rows.value.find((q) => q.status === 'sent');
+
+    return ready
+        ? [{ label: `Review ${ready.document_number}`, icon: 'clipboard', href: `/portal/quotations/${ready.id}`, hint: 'Your prices are ready. Accept to turn the quotation into an order.' }]
+        : loaded.value ? [{ label: 'Ask for a quotation', icon: 'boxes', href: '/portal/catalog', hint: 'Add products to your cart, then ask us for prices.' }] : [];
+});
 
 onMounted(async () => {
     try {
@@ -24,7 +32,7 @@ onMounted(async () => {
 
 <template>
     <Head title="Quotations" />
-    <PageHeader title="Quotations" />
+    <PageHeader title="Quotations" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="card">
         <p v-if="loaded && !rows.length" class="py-8 text-center text-ink-muted">

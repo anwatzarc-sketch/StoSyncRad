@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { nextSetupStep } from '@/lib/adminFlow';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import SchemaForm from '@/components/schema/SchemaForm.vue';
 import { ApiError, get, put } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
-const { can } = useShared();
+const { can, nav } = useShared();
+/** Next action: the next going-live step (lib/adminFlow). */
+const nextActions = computed<NextAction[]>(() => [nextSetupStep('/admin/company', nav.value)]
+    .filter((a): a is NextAction => !!a));
 const form = ref<Record<string, unknown>>({});
 const ready = ref(false);
 const busy = ref(false);
@@ -46,7 +51,7 @@ async function save() {
 </script>
 
 <template>
-    <PageHeader title="Company profile" />
+    <PageHeader title="Company profile" :next="nextActions" />
     <ErrorSummary :error="error" />
     <form v-if="ready" class="card space-y-6" @submit.prevent="save">
         <SchemaForm v-model="form" schema-name="company_profile" operation="update" :errors="fieldErrors" />

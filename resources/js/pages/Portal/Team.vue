@@ -10,6 +10,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue';
 import { get, post } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /**
  * The company's people in the portal. Everyone sees their colleagues; administrators invite new
@@ -44,6 +45,16 @@ const invite = reactive({ full_name: '', email: '', as_admin: false });
 const inviteError = ref<unknown>(null);
 
 const used = computed(() => (team.value ? team.value.members.filter((m) => m.status !== 'deactivated').length + team.value.invitations.length : 0));
+/** Next action: invite a colleague while seats are left. */
+const nextActions = computed<NextAction[]>(() => {
+    const t = team.value;
+    if (!t?.can_manage || (t.max_members > 0 && used.value >= t.max_members)) {
+        return [];
+    }
+
+    return [{ label: 'Invite a colleague', icon: 'plus', onClick: () => (inviting.value = true),
+        hint: t.max_members > 0 ? `${used.value} of ${t.max_members} portal users in use.` : 'Colleagues order, pay and follow deliveries for your company.' }];
+});
 
 async function load() {
     try {
@@ -100,11 +111,7 @@ const revoke = (i: Invitation) =>
 
 <template>
     <Head title="Team" />
-    <PageHeader title="Team" subtitle="Colleagues who can use the portal for your company">
-        <template v-if="team?.can_manage" #actions>
-            <UiButton variant="accent" icon="plus" @click="inviting = true">Invite a colleague</UiButton>
-        </template>
-    </PageHeader>
+    <PageHeader title="Team" subtitle="Colleagues who can use the portal for your company" :next="nextActions" />
     <ErrorSummary :error="error" />
 
     <div v-if="team" class="space-y-6">

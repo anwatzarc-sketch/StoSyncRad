@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AreaTabs from '@/components/AreaTabs.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
@@ -9,10 +9,12 @@ import { get, post } from '@/lib/api';
 import { enumLabel, loadEnums } from '@/lib/meta';
 import { formatDateTime } from '@/lib/format';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Report runs and exports: status, row counts, signed one-time download links, cancel.
- * `?run=<id>` (the "export ready / failed" notification) highlights that run.
+ * `?run=<id>` (the "export ready / failed" notification) highlights that run. Next action: download
+ * that export (else the newest finished one), or run a report.
  */
 const { can } = useShared();
 const focused = new URLSearchParams(window.location.search).get('run');
@@ -20,6 +22,17 @@ const runs = ref<Record<string, any>[]>([]);
 const all = ref(false);
 const error = ref<unknown>(null);
 let timer: ReturnType<typeof setInterval> | undefined;
+
+const nextActions = computed<NextAction[]>(() => {
+    const ready = runs.value.filter((r) => r.status === 'completed' && r.output_format !== 'web');
+    const target = ready.find((r) => r.id === focused) ?? ready[0];
+    const running = runs.value.filter((r) => ['queued', 'running'].includes(r.status)).length;
+    const hint = running ? `${running} still running — this page updates by itself.` : undefined;
+
+    return target
+        ? [{ label: `Download ${target.dataset_code}`, icon: 'download', onClick: () => void openRun(target.id), hint: hint ?? 'Download links are one-time and expire.' }]
+        : [{ label: 'Run a report', icon: 'chart', href: '/reports', hint: hint ?? 'Exports you start appear here.' }];
+});
 
 async function load() {
     try {
@@ -62,7 +75,7 @@ watch(all, () => void load());
 
 <template>
     <AreaTabs area="reports" />
-    <PageHeader title="Report runs" back="/reports">
+    <PageHeader title="Report runs" back="/reports" :next="nextActions">
         <template #actions>
             <label v-if="can('reporting.run.read_all')" class="flex min-h-11 items-center gap-2 text-sm">
                 <input v-model="all" type="checkbox" class="size-5 accent-brand"> Everyone's runs

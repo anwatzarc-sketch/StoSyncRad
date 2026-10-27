@@ -56,15 +56,19 @@ use App\Domains\Transfers\Services\TransferWorkflow;
  * schema, read/create/update permissions, warehouse scope columns, detail relations and the writer
  * (a domain action or workflow `save()`; null = schema-driven ResourceWriter; false = read-only).
  * Routes, permission bindings and the global schema validation are generated from this table.
- * `create_route` names a dedicated create endpoint (with its own schema, permission and step-up)
- * that the web pages use for read-only resources created outside the generic writer.
+ * `create_route` / `update_route` name dedicated create and edit endpoints (with their own schema,
+ * permission and step-up) that the web pages use for read-only resources written outside the generic
+ * writer. `create_variants` are other ways to start a record (`/r/{key}/new?via=…`): the endpoint,
+ * the noun and, when the result is not a record of this resource, the page to land on. `panels` are
+ * read endpoints of one record shown on its page (e.g. a recall's affected stock).
  */
 final class ResourceRegistry
 {
     /**
      * @return array<string, array{model: class-string, schema: ?class-string, read: string, create?: ?string, update?: ?string,
      *     warehouse?: array<int, string>, own?: array{0: string, 1: string}, with?: array<int, string>, writer?: mixed, feature?: ?string, server?: array,
-     *     create_route?: string}>
+     *     create_route?: string, update_route?: string, create_variants?: array<string, array{route: string, noun: string, land?: string}>,
+     *     panels?: array<int, array{label: string, route: string}>}>
      */
     public static function all(): array
     {
@@ -119,9 +123,11 @@ final class ResourceRegistry
                 'create' => 'identity.account.create', 'update' => 'identity.account.update', 'writer' => [CreateUserAccountAction::class, 'execute'],
                 'with' => ['person', 'assignments']],
             'role-assignments' => ['model' => Id\RoleAssignment::class, 'schema' => null, 'read' => 'identity.assignment.read', 'writer' => false,
-                'create_route' => 'api.v1.admin.assignments.store'],
-            'sod-rules' => ['model' => Id\SodRule::class, 'schema' => null, 'read' => 'identity.sod_rule.read', 'writer' => false],
-            'approval-policies' => ['model' => Id\ApprovalPolicy::class, 'schema' => null, 'read' => 'identity.approval_policy.read', 'writer' => false],
+                'create_route' => 'api.v1.admin.assignments.store', 'update_route' => 'api.v1.admin.assignments.update'],
+            'sod-rules' => ['model' => Id\SodRule::class, 'schema' => null, 'read' => 'identity.sod_rule.read', 'writer' => false,
+                'update_route' => 'api.v1.admin.sod_rules.update'],
+            'approval-policies' => ['model' => Id\ApprovalPolicy::class, 'schema' => null, 'read' => 'identity.approval_policy.read', 'writer' => false,
+                'update_route' => 'api.v1.admin.approval_policies.update'],
 
             // ---- Procurement & receiving ---------------------------------------------
             'purchase-requests' => $doc(Pro\PurchaseRequest::class, ProS\PurchaseRequestSchema::class, 'procurement.purchase_request', [ProW\PurchaseRequestWorkflow::class, 'save']),
@@ -139,10 +145,14 @@ final class ResourceRegistry
             // ---- Fulfillment ---------------------------------------------------------------
             'stock-requests' => $doc(Ful\StockRequest::class, FulS\StockRequestSchema::class, 'fulfillment.stock_request', [FulW\StockRequestWorkflow::class, 'save'],
                 own: ['fulfillment.stock_request.read_own', 'requester_id']),
-            'stock-issues' => $doc(Ful\StockIssue::class, FulS\StockIssueSchema::class, 'fulfillment.stock_issue', [FulW\StockIssueWorkflow::class, 'save']),
+            'stock-issues' => $doc(Ful\StockIssue::class, FulS\StockIssueSchema::class, 'fulfillment.stock_issue', [FulW\StockIssueWorkflow::class, 'save'])
+                + ['create_variants' => ['production' => ['route' => 'api.v1.production_issues.store', 'noun' => 'issue to production']]],
             'internal-returns' => ['model' => Ful\InternalReturn::class, 'schema' => null, 'read' => 'fulfillment.internal_return.read', 'warehouse' => ['warehouse_id'],
                 'with' => ['lines'], 'writer' => false],
-            'pick-lists' => ['model' => Ful\PickList::class, 'schema' => null, 'read' => 'fulfillment.pick_list.read', 'warehouse' => ['warehouse_id'], 'with' => ['lines'], 'writer' => false],
+            'pick-lists' => ['model' => Ful\PickList::class, 'schema' => null, 'read' => 'fulfillment.pick_list.read', 'warehouse' => ['warehouse_id'], 'with' => ['lines'], 'writer' => false,
+                'create_route' => 'api.v1.wf.pick.lists',
+                'create_variants' => ['wave' => ['route' => 'api.v1.wf.pick.waves', 'noun' => 'pick wave', 'land' => '/work/sales?queue=pick-lists.pick']],
+                'panels' => [['label' => 'Picked so far', 'route' => 'api.v1.wf.pick.lists.picked']]],
             'sales-orders' => $doc(Ful\SalesOrder::class, FulS\SalesOrderSchema::class, 'fulfillment.sales_order', [FulW\SalesOrderWorkflow::class, 'save']),
             'shipments' => ['model' => Ful\Shipment::class, 'schema' => null, 'read' => 'fulfillment.shipment.read', 'warehouse' => ['warehouse_id'],
                 'with' => ['packages', 'events'], 'writer' => false],
@@ -183,14 +193,23 @@ final class ResourceRegistry
             'scrap-documents' => ['model' => Inv\ScrapDocument::class, 'schema' => InvS\ScrapSchema::class, 'read' => 'inventory.stock.read', 'create' => 'inventory.scrap.create',
                 'update' => 'inventory.scrap.create', 'warehouse' => ['warehouse_id'], 'with' => ['lines'], 'writer' => [InvW\ScrapWorkflow::class, 'save']],
             'movements' => ['model' => Inv\StockMovement::class, 'schema' => null, 'read' => 'inventory.movement.read', 'warehouse' => ['warehouse_id', 'counterparty_warehouse_id'],
-                'with' => ['lines'], 'writer' => false],
-            'lots' => ['model' => Inv\InventoryLot::class, 'schema' => null, 'read' => 'inventory.lot.read', 'writer' => false],
+                'with' => ['lines'], 'writer' => false,
+                'create_variants' => ['production-receipt' => ['route' => 'api.v1.wf.production.receipts', 'noun' => 'receipt from production',
+                    'land' => '/r/movements/{stock_movement_id}']]],
+            'movement-reversals' => ['model' => Inv\StockMovementReversal::class, 'schema' => null, 'read' => 'inventory.movement.read',
+                'warehouse' => ['original_movement_id@stock_movements.warehouse_id'], 'with' => [], 'writer' => false],
+            'lots' => ['model' => Inv\InventoryLot::class, 'schema' => null, 'read' => 'inventory.lot.read', 'writer' => false,
+                'create_route' => 'api.v1.lots.register', 'update_route' => 'api.v1.lots.update'],
             'asns' => ['model' => Pro\AdvanceShipmentNotice::class, 'schema' => null, 'read' => 'procurement.asn.read', 'writer' => false, 'feature' => 'feature.asn',
                 'warehouse' => ['purchase_order_id@purchase_orders.warehouse_id'], 'with' => []],
-            'serials' => ['model' => Inv\ItemSerial::class, 'schema' => null, 'read' => 'inventory.serial.read', 'warehouse' => ['current_warehouse_id'], 'writer' => false],
-            'reservations' => ['model' => Inv\StockReservation::class, 'schema' => null, 'read' => 'inventory.reservation.read', 'warehouse' => ['warehouse_id'], 'writer' => false],
-            'recalls' => ['model' => Inv\Recall::class, 'schema' => null, 'read' => 'inventory.recall.read', 'with' => ['lots'], 'writer' => false, 'feature' => 'feature.recalls'],
-            'reconciliation-runs' => ['model' => Inv\ReconciliationRun::class, 'schema' => null, 'read' => 'inventory.reconciliation.read', 'writer' => false],
+            'serials' => ['model' => Inv\ItemSerial::class, 'schema' => null, 'read' => 'inventory.serial.read', 'warehouse' => ['current_warehouse_id'], 'writer' => false,
+                'create_route' => 'api.v1.serials.register', 'update_route' => 'api.v1.serials.update'],
+            'reservations' => ['model' => Inv\StockReservation::class, 'schema' => null, 'read' => 'inventory.reservation.read', 'warehouse' => ['warehouse_id'], 'writer' => false,
+                'create_route' => 'api.v1.reservations.create'],
+            'recalls' => ['model' => Inv\Recall::class, 'schema' => null, 'read' => 'inventory.recall.read', 'with' => ['lots'], 'writer' => false, 'feature' => 'feature.recalls',
+                'create_route' => 'api.v1.wf.recalls', 'panels' => [['label' => 'Affected stock', 'route' => 'api.v1.wf.recalls.affected']]],
+            'reconciliation-runs' => ['model' => Inv\ReconciliationRun::class, 'schema' => null, 'read' => 'inventory.reconciliation.read', 'writer' => false,
+                'create_route' => 'api.v1.wf.reconciliation.runs'],
             'reconciliation-findings' => ['model' => Inv\ReconciliationFinding::class, 'schema' => null, 'read' => 'inventory.reconciliation.read', 'writer' => false],
 
             // ---- Planning ----------------------------------------------------------------

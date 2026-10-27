@@ -10,12 +10,17 @@ use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Browser hardening for HTML responses (Chapter 12 §12.11, Chapter 14): nonce-based CSP (no inline
- * scripts), no framing, no sniffing, strict referrer, camera only for this origin (scanning), HSTS on
- * HTTPS. While the Vite dev server runs, its origin is allowed for scripts and HMR.
+ * Browser hardening for web and API responses (Chapter 12 §12.11, Chapter 14): nonce-based CSP (no
+ * inline scripts), no framing, no sniffing, strict referrer, camera only for this origin (scanning),
+ * HSTS on HTTPS. Signed-in pages and API answers are never stored by the browser or a proxy (shared
+ * warehouse devices, the back button after signing out) unless the response chose its own caching.
+ * While the Vite dev server runs, its origin is allowed for scripts and HMR.
  */
 final class SecurityHeaders
 {
+    /** Cache-Control directives that mean the response set its own caching on purpose. */
+    private const CHOSEN_CACHING = ['no-store', 'max-age', 's-maxage', 'public', 'immutable'];
+
     public function handle(Request $request, Closure $next): Response
     {
         $nonce = Vite::useCspNonce();
@@ -57,7 +62,21 @@ final class SecurityHeaders
                 $response->headers->set($name, $value);
             }
         }
+        if (($request->is('api/*') || $request->user() !== null) && ! $this->choseCaching($response)) {
+            $response->headers->set('Cache-Control', 'no-store, private');
+        }
 
         return $response;
+    }
+
+    private function choseCaching(Response $response): bool
+    {
+        foreach (self::CHOSEN_CACHING as $directive) {
+            if ($response->headers->hasCacheControlDirective($directive)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

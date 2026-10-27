@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { nextSetupStep } from '@/lib/adminFlow';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get, post, put } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Document, label, e-mail and report templates (Chapter 03 §3.6). Bodies use the sandboxed template
  * language ({{ path | filter }}, {{#each}}, {{#if}}); the preview renders in a sandboxed frame.
  */
-const { can } = useShared();
+const { can, nav } = useShared();
+/** Next action: the next going-live step (lib/adminFlow). */
+const nextActions = computed<NextAction[]>(() => [nextSetupStep('/admin/templates', nav.value)]
+    .filter((a): a is NextAction => !!a));
 const templates = ref<Record<string, any>[]>([]);
 const current = ref<Record<string, any> | null>(null);
 const body = ref('');
@@ -63,7 +68,7 @@ onMounted(async () => {
 </script>
 
 <template>
-    <PageHeader title="Templates" />
+    <PageHeader title="Templates" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="grid gap-6 lg:grid-cols-[18rem_1fr]">
         <nav class="card p-2" aria-label="Templates">

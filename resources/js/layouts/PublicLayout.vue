@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import BackHomeLinks from '@/components/BackHomeLinks.vue';
 import ToastHost from '@/components/ui/ToastHost.vue';
 import ProductFooter from '@/components/ProductFooter.vue';
 import ProductWordmark from '@/components/ProductWordmark.vue';
 
-/** Public Customer Portal pages (landing, registration, sign-in): no account, no staff navigation. */
+/** Public Customer Portal pages (landing, registration, sign-in): no account, no staff navigation; Back and Home to the portal landing. */
 </script>
 
 <template>
@@ -19,6 +20,7 @@ import ProductWordmark from '@/components/ProductWordmark.vue';
             </div>
         </header>
         <main id="main" class="flex-1">
+            <BackHomeLinks :home="{ href: '/portal', label: 'Portal home' }" class="mx-auto max-w-6xl px-4 pt-3" />
             <slot />
         </main>
         <div class="mx-auto w-full max-w-6xl px-4 pb-8">

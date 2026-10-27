@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { computed, onMounted, ref, watch } from 'vue';
+import { Link } from '@inertiajs/vue3';
+import PageHeader from '@/components/ui/PageHeader.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
-import { addToCart, type PortalItem } from '@/lib/portal';
+import { addToCart, cart, type PortalItem } from '@/lib/portal';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /** Products published online, searchable and filterable; prices and availability as configured by the seller. */
 
@@ -19,6 +21,9 @@ const page = ref(1);
 const total = ref(0);
 const loading = ref(false);
 const error = ref<unknown>(null);
+const nextActions = computed<NextAction[]>(() => (cart.lines.length
+    ? [{ label: `Review your cart (${cart.lines.length})`, icon: 'cart', href: '/portal/cart', hint: 'Order straight away, or ask us for a quotation.' }]
+    : []));
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 const BANDS: Record<string, [string, string]> = {
@@ -58,11 +63,9 @@ function add(item: PortalItem) {
 </script>
 
 <template>
-    <Head title="Products" />
-    <div class="flex flex-wrap items-end gap-3">
-        <h1 class="mr-auto text-2xl font-bold">Products</h1>
-        <Link href="/portal/cart" class="btn btn-secondary"><AppIcon name="cart" :size="18" /> Cart</Link>
-    </div>
+    <PageHeader title="Products" :next="nextActions">
+        <template #actions><Link href="/portal/cart" class="btn btn-secondary"><AppIcon name="cart" :size="18" /> Cart</Link></template>
+    </PageHeader>
     <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_16rem]">
         <label class="relative">
             <span class="sr-only">Search products</span>

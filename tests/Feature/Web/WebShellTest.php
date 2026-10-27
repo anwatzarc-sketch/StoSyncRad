@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Web;
 
+use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\Messaging\Services\NotificationRouter;
 use App\Domains\Platform\Enums\PlatformSetupState;
 use App\Domains\Platform\Services\BrandKitService;
@@ -18,7 +19,10 @@ use Tests\Support\BuildsInventory;
 use Tests\Support\BuildsPortal;
 use Tests\TestCase;
 
-/** Chapter 12 — app shell: pages, sign-in redirect, security headers, server-filtered navigation and actions. */
+/**
+ * Chapter 12 — app shell: pages, sign-in redirect, security headers and caching, server-filtered
+ * navigation, actions, follow-up links and read panels.
+ */
 final class WebShellTest extends TestCase
 {
     use BuildsActors;
@@ -45,6 +49,18 @@ final class WebShellTest extends TestCase
 
         $this->get('/stock')->assertRedirect('/login');
         $this->get('/manifest.webmanifest')->assertOk()->assertJsonStructure(['name', 'short_name', 'start_url', 'icons']);
+    }
+
+    public function test_signed_in_pages_and_api_answers_are_never_stored_while_public_ones_keep_their_caching(): void
+    {
+        $person = $this->actorWith(['inventory.stock.read']);
+
+        $this->assertStringNotContainsString('no-store', (string) $this->get('/login')->assertOk()->headers->get('Cache-Control'));
+        $this->assertStringContainsString('no-store', (string) $this->actingAs($person, 'web')->get('/stock')->assertOk()->headers->get('Cache-Control'));
+        $this->app['auth']->forgetGuards();
+        $api = $this->withToken($person->createToken('t')->plainTextToken)->getJson('/api/v1/me')->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringContainsString('no-store', (string) $api->headers->get('Cache-Control'));
+        $this->assertStringContainsString('max-age=60', (string) $this->getJson('/api/v1/meta/brand')->assertOk()->headers->get('Cache-Control'), 'the public brand profile stays cacheable');
     }
 
     public function test_the_product_identity_is_fixed_whatever_the_customer_brand_kit_says(): void
@@ -130,6 +146,67 @@ final class WebShellTest extends TestCase
         $this->assertSame(['POST', '/api/v1/admin/role-assignments/{id}/revoke', 'id'], [$revoke['method'], $revoke['uri'], $revoke['parameter']]);
     }
 
+    public function test_create_variants_post_to_their_own_endpoint_and_unknown_variants_are_not_found(): void
+    {
+        $this->setConfig('feature.production_store', true);
+        $receiver = $this->actorWith(['inventory.movement.read', 'fulfillment.production.receive']);
+        $this->browse($receiver)->get('/r/movements/new?via=production-receipt')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('Resources/Form', false)
+            ->where('resource.noun', 'receipt from production')
+            ->where('resource.api_create', '/api/v1/production-receipts')
+            ->where('resource.create_schema', 'production_receipt')
+            ->where('resource.create_idempotent', true)
+            ->where('resource.create_land', '/r/movements/{stock_movement_id}'));
+
+        $this->browse($receiver)->get('/r/movements/new?via=teleport')->assertNotFound();
+        $this->browse($receiver)->get('/r/movements/new')->assertForbidden();
+        $this->browse($this->actorWith(['inventory.movement.read']))->get('/r/movements/new?via=production-receipt')->assertForbidden();
+    }
+
+    public function test_record_pages_offer_dedicated_edits_and_follow_up_links_only_with_their_permissions(): void
+    {
+        $lot = (string) Str::uuid7();
+        $keeper = $this->actorWith(['inventory.lot.read', 'inventory.lot.update', 'inventory.trace.read']);
+        $this->browse($keeper)->get("/r/lots/$lot")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('resource.can_update', true)
+            ->where('resource.update_schema', 'lot_update')
+            ->where('resource.api_update', '/api/v1/lots/{id}')
+            ->where('resource.next', [['label' => 'Trace this lot', 'href' => '/trace?lot={id}', 'icon' => 'route']]));
+        $this->browse($keeper)->get("/r/lots/$lot/edit")->assertOk()->assertInertia(fn (Assert $page) => $page->component('Resources/Form', false));
+
+        $reader = $this->actorWith(['inventory.lot.read']);
+        $this->browse($reader)->get("/r/lots/$lot")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('resource.can_update', false)
+            ->where('resource.next', []));
+        $this->browse($reader)->get("/r/lots/$lot/edit")->assertForbidden();
+    }
+
+    public function test_actions_whose_service_posts_to_the_ledger_send_an_idempotency_key_and_others_do_not(): void
+    {
+        $approver = $this->actorWith(['inventory.movement.read', 'inventory.movement.reverse']);
+        $actions = collect($this->browse($approver)->get('/r/movement-reversals/'.Str::uuid7())->assertOk()->viewData('page')['props']['resource']['actions'])->keyBy('name');
+        $this->assertSame(['/api/v1/reversals/{reversalId}/approve', true, ['reversalId' => 'id']],
+            [$actions['approve']['uri'], $actions['approve']['idempotent'], $actions['approve']['params']]);
+        $this->assertFalse($actions['reject']['idempotent'], 'rejecting posts nothing');
+
+        $courier = $this->actorWith(['fulfillment.shipment.read', 'fulfillment.shipment.update_status']);
+        $events = collect($this->browse($courier)->get('/r/shipments/'.Str::uuid7())->assertOk()->viewData('page')['props']['resource']['actions'])->firstWhere('name', 'events');
+        $this->assertTrue($events['idempotent'], 'a delivery event can post the sale, so it goes through the posting pipeline');
+    }
+
+    public function test_read_panels_and_approval_history_are_shown_only_with_their_read_permission(): void
+    {
+        $this->setConfig('feature.recalls', true);
+        $this->browse($this->actorWith(['inventory.recall.read']))->get('/r/recalls/'.Str::uuid7())->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('resource.panels', [['label' => 'Affected stock', 'uri' => '/api/v1/recalls/{recallId}/affected']]));
+
+        $order = '/r/purchase-orders/'.Str::uuid7();
+        $this->browse($this->actorWith(['procurement.purchase_order.read', 'audit.approval.read']))->get($order)->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('resource.panels', [['label' => 'Approval history', 'uri' => '/api/v1/audit/approvals?document_type=purchase_order&document_id={id}']]));
+        $this->browse($this->actorWith(['procurement.purchase_order.read']))->get($order)->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('resource.panels', []));
+    }
+
     public function test_role_assignment_readers_without_create_or_revoke_permissions_get_a_read_only_list(): void
     {
         $viewer = $this->actorWith(['identity.assignment.read']);
@@ -152,5 +229,14 @@ final class WebShellTest extends TestCase
             $response = $this->actingAs(str_starts_with($link, '/portal/') ? $customer : $admin, 'web')->get($link);
             $this->assertSame(200, $response->getStatusCode(), "$event links to $link, which answers {$response->getStatusCode()} ".($response->exception?->getMessage() ?? ''));
         }
+    }
+
+    /** A browser session of this person (a new session: AuthenticateSession ends one that changes hands). */
+    private function browse(UserAccount $account): static
+    {
+        $this->app['auth']->forgetGuards();
+        $this->flushSession();
+
+        return $this->actingAs($account, 'web');
     }
 }

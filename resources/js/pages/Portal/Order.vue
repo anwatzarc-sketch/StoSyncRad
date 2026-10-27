@@ -11,6 +11,7 @@ import PaymentConfirmForm from '@/components/portal/PaymentConfirmForm.vue';
 import { get, post } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /** One order: what was agreed, the recorded progress (timeline), shipments with tracking, receipt confirmation and invoices. */
 const props = defineProps<{ orderId: string }>();
@@ -20,6 +21,23 @@ const receiptFor = ref<{ shipmentId: string | null } | null>(null);
 const paying = ref(false);
 const cancelling = ref(false);
 const reason = ref('');
+/** Next action: confirm what arrived, pay what is due, or just follow the order. */
+const nextActions = computed<NextAction[]>(() => {
+    const o = order.value;
+    if (!o) {
+        return [];
+    }
+    const arrived = o.shipments.find((s: any) => !s.acknowledged && ['handed_over', 'in_transit', 'delivered'].includes(s.status));
+    if (arrived || o.can_acknowledge_direct) {
+        return [{ label: 'Confirm what you received', icon: 'check', onClick: () => (receiptFor.value = { shipmentId: arrived?.id ?? null }), hint: 'Tell us if anything is missing or damaged.' }];
+    }
+    const due = o.invoices.find((i: any) => Number(i.balance_due) > 0);
+    if (due) {
+        return [{ label: `Pay invoice ${due.document_number}`, icon: 'coins', href: `/portal/invoices/${due.id}` }];
+    }
+
+    return [{ label: 'All orders', icon: 'truck', href: '/portal/orders', hint: o.status === 'draft' ? 'We confirm your order shortly.' : undefined }];
+});
 
 const receiptLines = computed(() => (order.value?.lines ?? []).map((l: any) => ({ id: l.id, name: l.name, sku: l.sku, unit: l.unit })));
 async function load() {
@@ -57,7 +75,7 @@ function receiptDone() {
 
 <template>
     <Head :title="order?.document_number ?? 'Order'" />
-    <PageHeader :title="order?.document_number ?? 'Order'" subtitle="Order" back="/portal/orders" />
+    <PageHeader :title="order?.document_number ?? 'Order'" subtitle="Order" back="/portal/orders" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div v-if="order" class="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div class="space-y-6">

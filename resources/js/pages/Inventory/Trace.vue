@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AreaTabs from '@/components/AreaTabs.vue';
 import DataTable from '@/components/ui/DataTable.vue';
@@ -10,6 +10,8 @@ import { get } from '@/lib/api';
 import { enumLabel, loadEnums } from '@/lib/meta';
 import { formatDate, formatDateTime, formatQuantity } from '@/lib/format';
 import type { Column } from '@/components/ui/table';
+import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /** Company-wide batch / serial traceability (Chapter 07 §7.10): where it came from and where it went. */
 const params = new URLSearchParams(window.location.search);
@@ -18,6 +20,23 @@ const serial = ref(params.get('serial') ?? '');
 const lotResult = ref<Record<string, any> | null>(null);
 const serialResult = ref<Record<string, any> | null>(null);
 const error = ref<unknown>(null);
+const { can, feature } = useShared();
+/** Next action: from a traced lot, recall it or open it; from a serial, open it; otherwise trace something. */
+const nextActions = computed<NextAction[]>(() => {
+    if (lotResult.value && lotId.value) {
+        return [
+            ...(feature('feature.recalls') && can('inventory.recall.initiate')
+                ? [{ label: 'Recall this lot', icon: 'alert', href: `/r/recalls/new?prefill[lot_ids][]=${lotId.value}`, hint: 'Found a problem with this batch? Start a recall to block and trace every unit.' }] : []),
+            { label: 'Open the lot', icon: 'tag', href: `/r/lots/${lotId.value}` },
+        ];
+    }
+    const s = serialResult.value?.serials?.[0];
+    if (s) {
+        return [{ label: `Open serial ${s.serial_number}`, icon: 'hash', href: `/r/serials/${s.id}`, hint: 'Warranty and current location of this unit.' }];
+    }
+
+    return [{ label: 'Trace a serial number', icon: 'search', onClick: () => document.getElementById('trace-serial')?.focus(), hint: 'Choose a lot or type a serial number to see where it came from and went.' }];
+});
 
 const movementColumns: Column[] = [
     { key: 'posted_at', label: 'When', format: (v) => formatDateTime(v) },
@@ -73,7 +92,7 @@ onMounted(async () => {
 
 <template>
     <AreaTabs area="stock" />
-    <PageHeader title="Traceability" subtitle="Follow a batch or serial across every branch" />
+    <PageHeader title="Traceability" subtitle="Follow a batch or serial across every branch" :next="nextActions" />
     <div class="card mb-4 grid gap-4 md:grid-cols-2">
         <form class="flex items-end gap-2" @submit.prevent="traceLot">
             <div class="flex-1">

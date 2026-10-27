@@ -16,11 +16,17 @@ export const ENUM_VALUES = {
   ],
   "account_type": [
     "human",
-    "service"
+    "service",
+    "customer"
   ],
   "accounts_per_person_policy": [
     "single",
     "multiple"
+  ],
+  "acknowledgement_status": [
+    "recorded",
+    "open",
+    "resolved"
   ],
   "address_kind": [
     "registered",
@@ -102,14 +108,18 @@ export const ENUM_VALUES = {
     "opening_balance",
     "recall",
     "condition_change",
-    "scrap"
+    "scrap",
+    "payment_confirmation",
+    "delivery_acknowledgement"
   ],
   "attachment_kind": [
     "datasheet",
     "msds",
     "certificate",
     "image",
-    "other"
+    "other",
+    "payment_evidence",
+    "delivery_photo"
   ],
   "attribute_display_type": [
     "radio",
@@ -122,6 +132,11 @@ export const ENUM_VALUES = {
     "system",
     "integration",
     "setup"
+  ],
+  "availability_display": [
+    "band",
+    "quantity",
+    "hidden"
   ],
   "barcode_symbology": [
     "ean13",
@@ -206,6 +221,17 @@ export const ENUM_VALUES = {
     "rejected",
     "cancelled"
   ],
+  "delivery_issue_type": [
+    "shortage",
+    "damaged",
+    "wrong_item",
+    "other"
+  ],
+  "delivery_outcome": [
+    "received_in_full",
+    "received_with_issues",
+    "not_received"
+  ],
   "discrepancy_resolution": [
     "receive_accepted",
     "keep_in_transit",
@@ -264,7 +290,11 @@ export const ENUM_VALUES = {
     "scrap",
     "opening_balance",
     "stock_movement",
-    "recall"
+    "recall",
+    "quotation",
+    "invoice",
+    "payment",
+    "payment_confirmation"
   ],
   "expiry_horizon": [
     "expired",
@@ -374,6 +404,23 @@ export const ENUM_VALUES = {
     "inventory_loss",
     "cross_dock_virtual"
   ],
+  "invitation_status": [
+    "pending",
+    "accepted",
+    "revoked",
+    "expired"
+  ],
+  "invoice_basis": [
+    "ordered",
+    "delivered"
+  ],
+  "invoice_status": [
+    "draft",
+    "issued",
+    "partially_paid",
+    "paid",
+    "void"
+  ],
   "item_status": [
     "draft",
     "active",
@@ -417,6 +464,15 @@ export const ENUM_VALUES = {
   "lot_uniqueness_scope": [
     "item",
     "item_supplier"
+  ],
+  "mail_security": [
+    "starttls",
+    "ssl"
+  ],
+  "mail_transport": [
+    "environment",
+    "smtp",
+    "log"
   ],
   "mfa_policy": [
     "off",
@@ -516,6 +572,25 @@ export const ENUM_VALUES = {
     "carrier",
     "internal_recipient",
     "manufacturer"
+  ],
+  "payment_confirmation_status": [
+    "submitted",
+    "info_requested",
+    "verified",
+    "rejected",
+    "withdrawn"
+  ],
+  "payment_method": [
+    "bank_transfer",
+    "mobile_banking",
+    "cash_deposit",
+    "cash",
+    "cheque",
+    "other"
+  ],
+  "payment_status": [
+    "posted",
+    "void"
   ],
   "pdf_renderer": [
     "dompdf",
@@ -635,6 +710,15 @@ export const ENUM_VALUES = {
     "quarantine_on_receipt",
     "inherit_category"
   ],
+  "quotation_status": [
+    "requested",
+    "sent",
+    "revision_requested",
+    "accepted",
+    "declined",
+    "expired",
+    "cancelled"
+  ],
   "recall_status": [
     "initiated",
     "in_progress",
@@ -661,6 +745,18 @@ export const ENUM_VALUES = {
     "completed_clean",
     "completed_with_findings",
     "failed"
+  ],
+  "registration_mode": [
+    "approval",
+    "invitation_only",
+    "closed"
+  ],
+  "registration_status": [
+    "pending_verification",
+    "pending_mfa",
+    "pending_approval",
+    "approved",
+    "rejected"
   ],
   "relative_date_range": [
     "today",
@@ -793,7 +889,8 @@ export const ENUM_VALUES = {
   "sales_channel": [
     "retail_counter",
     "ecommerce",
-    "wholesale"
+    "wholesale",
+    "customer_portal"
   ],
   "sales_order_status": [
     "draft",
@@ -1096,6 +1193,20 @@ export type PermissionCode =
   | "audit.approval.read"
   | "audit.event.export"
   | "audit.event.read"
+  | "billing.credit.manage"
+  | "billing.credit.override"
+  | "billing.invoice.create"
+  | "billing.invoice.issue"
+  | "billing.invoice.read"
+  | "billing.invoice.void"
+  | "billing.payment.allocate"
+  | "billing.payment.read"
+  | "billing.payment.record"
+  | "billing.payment.void"
+  | "billing.payment_confirmation.read"
+  | "billing.payment_confirmation.review"
+  | "billing.tax.manage"
+  | "billing.tax.read"
   | "catalog.barcode.manage"
   | "catalog.barcode.read"
   | "catalog.category.archive"
@@ -1126,6 +1237,20 @@ export type PermissionCode =
   | "catalog.variant.read"
   | "catalog.vendor_pricelist.manage"
   | "catalog.vendor_pricelist.read"
+  | "customer.account.manage"
+  | "customer.catalog.browse"
+  | "customer.delivery.confirm"
+  | "customer.invoice.read"
+  | "customer.member.manage"
+  | "customer.member.read"
+  | "customer.order.cancel"
+  | "customer.order.place"
+  | "customer.order.read"
+  | "customer.payment.read"
+  | "customer.payment.submit"
+  | "customer.quotation.read"
+  | "customer.quotation.request"
+  | "customer.quotation.respond"
   | "exchange.import.barcodes"
   | "exchange.import.branches"
   | "exchange.import.categories"
@@ -1349,6 +1474,14 @@ export type PermissionCode =
   | "platform.template.manage"
   | "platform.template.read"
   | "platform.translation.manage"
+  | "portal.acknowledgement.read"
+  | "portal.acknowledgement.resolve"
+  | "portal.invitation.create"
+  | "portal.invitation.read"
+  | "portal.invitation.revoke"
+  | "portal.registration.approve"
+  | "portal.registration.read"
+  | "portal.registration.reject"
   | "procurement.asn.create"
   | "procurement.asn.read"
   | "procurement.purchase_order.approve"
@@ -1408,6 +1541,9 @@ export type PermissionCode =
   | "reporting.report.run"
   | "reporting.restricted_fields.view"
   | "reporting.run.read_all"
+  | "sales.quotation.cancel"
+  | "sales.quotation.price"
+  | "sales.quotation.read"
   | "stocktaking.adjustment.approve"
   | "stocktaking.adjustment.cancel"
   | "stocktaking.adjustment.create"
@@ -1523,6 +1659,10 @@ export type SchemaName =
   | "condition_change_line"
   | "config_bundle"
   | "config_value"
+  | "credit_limit"
+  | "customer_invitation"
+  | "delivery_acknowledgement"
+  | "delivery_issue_line"
   | "discrepancy_investigate"
   | "discrepancy_resolution"
   | "enum_label"
@@ -1534,12 +1674,16 @@ export type SchemaName =
   | "import_upload"
   | "inspection"
   | "inspection_line"
+  | "invoice"
+  | "invoice_from_order"
+  | "invoice_line"
   | "item"
   | "item_attribute"
   | "item_attribute_line"
   | "item_attribute_value_line"
   | "item_barcode_line"
   | "item_category"
+  | "item_image_upload"
   | "item_kit_component_line"
   | "item_packaging_line"
   | "item_reorder_rule"
@@ -1552,6 +1696,7 @@ export type SchemaName =
   | "lookup_value_save"
   | "lot_register"
   | "lot_update"
+  | "mail_test"
   | "maintenance"
   | "mfa_code"
   | "mfa_verify"
@@ -1562,6 +1707,10 @@ export type SchemaName =
   | "opening_balance_line"
   | "outbox_retry"
   | "partner"
+  | "payment"
+  | "payment_allocation"
+  | "payment_confirmation"
+  | "payment_verification"
   | "person"
   | "pick_list_generate"
   | "pick_record"
@@ -1569,6 +1718,15 @@ export type SchemaName =
   | "pick_wave"
   | "picked_line"
   | "picked_lines"
+  | "portal_invitation_accept"
+  | "portal_line"
+  | "portal_note"
+  | "portal_order"
+  | "portal_registration"
+  | "portal_resend_verification"
+  | "portal_team_invitation"
+  | "portal_team_role"
+  | "portal_token"
   | "production_receipt"
   | "production_receipt_line"
   | "purchase_order"
@@ -1583,10 +1741,14 @@ export type SchemaName =
   | "qc_checklist_template"
   | "qc_decision"
   | "quality_check"
+  | "quotation_price"
+  | "quotation_price_line"
+  | "quotation_request"
   | "recall"
   | "receipt_posting"
   | "reconciliation_run"
   | "recount_request"
+  | "registration_approval"
   | "relocation"
   | "relocation_line"
   | "replenishment_convert"
@@ -1633,6 +1795,7 @@ export type SchemaName =
   | "supplier_return"
   | "supplier_return_line"
   | "tag"
+  | "tax_rate"
   | "template_preview"
   | "template_save"
   | "tracking_conversion"
@@ -1659,11 +1822,15 @@ export const REFERENCE_RESOURCES: Record<string, string> = {
   "ApprovalPolicy": "approval-policies",
   "Branch": "branches",
   "ConditionChange": "condition-changes",
+  "CustomerInvitation": "customer-invitations",
+  "CustomerRegistration": "customer-registrations",
   "CustomerReturn": "customer-returns",
+  "DeliveryAcknowledgement": "delivery-acknowledgements",
   "ForecastInput": "forecast-inputs",
   "GoodsReceipt": "goods-receipts",
   "InternalReturn": "internal-returns",
   "InventoryLot": "lots",
+  "Invoice": "invoices",
   "Item": "items",
   "ItemAttribute": "item-attributes",
   "ItemCategory": "item-categories",
@@ -1673,6 +1840,8 @@ export const REFERENCE_RESOURCES: Record<string, string> = {
   "ItemVendorPricelist": "vendor-pricelists",
   "OpeningBalanceDocument": "opening-balances",
   "Partner": "partners",
+  "Payment": "payments",
+  "PaymentConfirmation": "payment-confirmations",
   "Person": "persons",
   "PickList": "pick-lists",
   "PurchaseOrder": "purchase-orders",
@@ -1680,6 +1849,7 @@ export const REFERENCE_RESOURCES: Record<string, string> = {
   "PutawayRule": "putaway-rules",
   "PutawayTask": "putaway-tasks",
   "QcChecklistTemplate": "qc-templates",
+  "Quotation": "quotations",
   "Recall": "recalls",
   "ReconciliationFinding": "reconciliation-findings",
   "ReconciliationRun": "reconciliation-runs",
@@ -1693,6 +1863,7 @@ export const REFERENCE_RESOURCES: Record<string, string> = {
   "StockAdjustment": "stock-adjustments",
   "StockIssue": "stock-issues",
   "StockMovement": "movements",
+  "StockMovementReversal": "movement-reversals",
   "StockRequest": "stock-requests",
   "StockReservation": "reservations",
   "Stocktake": "stocktakes",
@@ -1700,6 +1871,7 @@ export const REFERENCE_RESOURCES: Record<string, string> = {
   "StorageLocation": "storage-locations",
   "SupplierReturn": "supplier-returns",
   "Tag": "tags",
+  "TaxRate": "tax-rates",
   "TransferDiscrepancy": "transfer-discrepancies",
   "TransferOrder": "transfers",
   "UnitOfMeasure": "units",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
@@ -9,6 +9,7 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { download, get, post } from '@/lib/api';
 import { formatDate, formatMoney, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /** A quotation: lines and prices once staff priced it; accept (creates the order once), decline or ask for changes. */
 const props = defineProps<{ quotationId: string }>();
@@ -17,6 +18,17 @@ const error = ref<unknown>(null);
 const busy = ref(false);
 const dialog = ref<'decline' | 'revise' | null>(null);
 const reason = ref('');
+const nextActions = computed<NextAction[]>(() => {
+    if (q.value?.can_respond) {
+        return [{ label: 'Accept and order', icon: 'check', onClick: () => void accept(), hint: q.value.valid_until ? 'Prices hold until the quotation expires.' : 'Accepting creates your order straight away.' },
+            { label: 'Ask for changes', icon: 'edit', onClick: () => (dialog.value = 'revise') }];
+    }
+    if (q.value?.order) {
+        return [{ label: `Follow order ${q.value.order.document_number}`, icon: 'truck', href: `/portal/orders/${q.value.order.id}` }];
+    }
+
+    return q.value ? [{ label: 'All quotations', icon: 'clipboard', href: '/portal/quotations', hint: ['requested', 'revision_requested'].includes(q.value.status) ? 'We will notify you when the prices are ready.' : undefined }] : [];
+});
 
 async function load() {
     try {
@@ -68,7 +80,7 @@ async function pdf() {
 
 <template>
     <Head :title="q?.document_number ?? 'Quotation'" />
-    <PageHeader :title="q?.document_number ?? 'Quotation'" subtitle="Quotation" back="/portal/quotations">
+    <PageHeader :title="q?.document_number ?? 'Quotation'" subtitle="Quotation" back="/portal/quotations" :next="nextActions">
         <template #actions>
             <UiButton v-if="q && q.total !== null && q.status !== 'cancelled'" icon="download" @click="pdf">PDF</UiButton>
         </template>

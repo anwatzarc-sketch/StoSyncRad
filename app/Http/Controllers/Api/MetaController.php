@@ -11,7 +11,6 @@ use App\Domains\Platform\Config\ConfigRegistry;
 use App\Domains\Platform\Config\PlatformConfig;
 use App\Domains\Platform\Services\BrandResolver;
 use App\Domains\Platform\Services\SetupState;
-use App\Support\Enums\EnumLabelResolver;
 use App\Support\Enums\EnumRegistry;
 use App\Support\Schema\SchemaRegistry;
 use Illuminate\Http\JsonResponse;
@@ -27,7 +26,7 @@ final class MetaController extends ApiController
 {
     /** Non-sensitive configuration exposed to every signed-in client (formatting, behaviour hints). */
     private const CLIENT_CONFIG_PREFIXES = ['locale.', 'ui.', 'pwa.', 'stock.reservation.policy', 'fulfillment.sales.post_on', 'stocktaking.blind_by_default',
-        'reporting.max_sync_rows', 'catalog.variants.enabled', 'transfers.batch_verify', 'receiving.'];
+        'reporting.max_sync_rows', 'catalog.variants.enabled', 'transfers.batch_verify', 'receiving.', 'inventory.costing_'];
 
     public function __construct(private readonly Access $access, private readonly PlatformConfig $config) {}
 

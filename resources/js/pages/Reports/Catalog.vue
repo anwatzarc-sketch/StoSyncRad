@@ -8,8 +8,12 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { enumLabel, loadEnums } from '@/lib/meta';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
-/** Saved reports visible to this person (own, shared, standard) and the datasets they may use. */
+/**
+ * Saved reports visible to this person (own, shared, standard) and the datasets they may use. Next
+ * action: open one's own latest report (else the first standard one), build a new one, or collect exports.
+ */
 const { can } = useShared();
 const definitions = ref<Record<string, any>[]>([]);
 const datasets = ref<Record<string, any>[]>([]);
@@ -26,6 +30,17 @@ const grouped = computed(() => {
     }
 
     return out;
+});
+
+const nextActions = computed<NextAction[]>(() => {
+    const own = definitions.value.find((d) => !d.is_system_seed && d.owner_account_id);
+    const first = own ?? definitions.value.find((d) => d.is_system_seed);
+
+    return [
+        ...(first ? [{ label: `Run ${first.name}`, icon: 'chart', href: `/reports/${first.id}`, hint: own ? 'Your most recent report.' : 'Standard reports are ready to run.' }] : []),
+        ...(can('reporting.definition.create') ? [{ label: 'New report', icon: 'plus', href: '/reports/new' }] : []),
+        { label: 'Runs & exports', icon: 'history', href: '/reports/runs' },
+    ];
 });
 
 async function load() {
@@ -50,12 +65,7 @@ watch(scope, () => void load());
 
 <template>
     <AreaTabs area="reports" />
-    <PageHeader title="Reports">
-        <template #actions>
-            <UiButton icon="history" href="/reports/runs">Runs & exports</UiButton>
-            <UiButton v-if="can('reporting.definition.create')" variant="primary" icon="plus" href="/reports/new">New report</UiButton>
-        </template>
-    </PageHeader>
+    <PageHeader title="Reports" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="card mb-4 grid gap-3 md:grid-cols-[1fr_14rem]">
         <input v-model="q" type="search" class="input" placeholder="Search reports…" aria-label="Search reports">

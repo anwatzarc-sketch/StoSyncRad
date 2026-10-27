@@ -8,11 +8,13 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { api, download, get, post } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import type { Column } from '@/components/ui/table';
+import type { NextAction } from '@/types/shared';
 
 /**
  * CSV / XLSX imports (Chapter 11 §11.9): upload → validated preview with per-row errors →
  * confirm (processed in the background) → error file. Each import type has its own permission.
- * `?batch=<id>` (the "import finished" notification) opens that import's result.
+ * `?batch=<id>` (the "import finished" notification) opens that import's result. Next action follows
+ * the same steps: template → upload → confirm → check the imported records.
  */
 interface ImportTypeInfo { type: string; label: string; allowed: boolean; columns?: string[]; required?: string[] }
 
@@ -26,6 +28,38 @@ const error = ref<unknown>(null);
 let poll: ReturnType<typeof setInterval> | undefined;
 
 const allowedTypes = computed(() => types.value.filter((t) => t.allowed));
+/** Where the records of each import type are looked after. */
+const IMPORTED_INTO: Record<string, string> = {
+    items: 'items', variants: 'item-variants', categories: 'item-categories', uom: 'units', barcodes: 'items', packagings: 'items',
+    vendor_pricelists: 'vendor-pricelists', reorder_rules: 'reorder-rules', branches: 'branches', warehouses: 'warehouses',
+    storage_locations: 'storage-locations', partners: 'partners', lots: 'lots', opening_balances: 'opening-balances', roles: 'roles',
+};
+const nextActions = computed<NextAction[]>(() => {
+    const b = batch.value;
+    if (b?.status === 'previewed') {
+        return [
+            ...(b.valid_count ? [{ label: `Import ${b.valid_count} valid rows`, icon: 'upload', onClick: () => void confirm(),
+                hint: b.invalid_count ? `${b.invalid_count} row(s) have problems and will be skipped — fix them from the error file.` : 'Every row is valid.' }] : []),
+            ...(b.invalid_count ? [{ label: 'Download the error file', icon: 'download', onClick: () => void errorFile() }] : []),
+        ];
+    }
+    if (b?.status === 'completed' || b?.status === 'completed_with_errors') {
+        const into = IMPORTED_INTO[b.import_type ?? type.value];
+
+        return [
+            ...(into ? [{ label: 'Check the imported records', icon: 'list', href: `/r/${into}`, hint: `${b.imported_count ?? 0} row(s) imported.` }] : []),
+            { label: 'Import another file', icon: 'upload', onClick: () => { batch.value = null; rows.value = []; } },
+        ];
+    }
+    if (!b && type.value) {
+        const label = allowedTypes.value.find((t) => t.type === type.value)?.label ?? type.value;
+
+        return [{ label: `Download the ${label.toLowerCase()} template`, icon: 'download', onClick: () => void download(`/api/v1/imports/templates/${type.value}`, `${type.value}-template.csv`),
+            hint: 'Fill in the template, then upload it. Nothing is written until you confirm the preview.' }];
+    }
+
+    return [];
+});
 const rowColumns: Column[] = [
     { key: 'row_number', label: 'Row' },
     { key: 'status', label: 'Status' },
@@ -110,7 +144,7 @@ async function errorFile() {
 </script>
 
 <template>
-    <PageHeader title="Imports" subtitle="Upload CSV or Excel files; nothing is written until you confirm the preview" />
+    <PageHeader title="Imports" subtitle="Upload CSV or Excel files; nothing is written until you confirm the preview" :next="nextActions" />
     <ErrorSummary :error="error" />
 
     <section class="card mb-6">

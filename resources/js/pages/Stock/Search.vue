@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AreaTabs from '@/components/AreaTabs.vue';
@@ -13,6 +13,7 @@ import { enumLabel, loadEnums } from '@/lib/meta';
 import { formatDate, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import type { Column } from '@/components/ui/table';
+import type { NextAction } from '@/types/shared';
 
 /** Stock search (Chapter 12 §12.6): explicit quantity buckets per position, filtered by scope. */
 const itemId = ref<string | null>(new URLSearchParams(window.location.search).get('item_id'));
@@ -36,6 +37,17 @@ const columns: Column[] = [
     { key: 'quantity_reserved', label: 'Reserved', align: 'right', format: (v) => formatQuantity(v) },
     { key: 'quantity_available', label: 'Available', align: 'right', format: (v) => formatQuantity(v) },
 ];
+
+/** Next action: open the stock card of the item found, else find one by scanning. */
+const nextActions = computed<NextAction[]>(() => {
+    const first = rows.value[0];
+    if (itemId.value && first) {
+        return [{ label: `Open ${first.sku} stock card`, icon: 'history', href: `/stock/items/${first.item_id}`, hint: 'Positions, reservations and every movement of this item.' }];
+    }
+
+    return [{ label: 'Scan an item or bin', icon: 'scan', onClick: () => document.getElementById('stock-scan')?.focus(),
+        hint: 'Scan or pick an item to see where it is and how much is free to use.' }];
+});
 
 async function load() {
     controller?.abort();
@@ -80,7 +92,7 @@ watch([itemId, warehouseId, condition], () => void load());
 
 <template>
     <AreaTabs area="stock" />
-    <PageHeader title="Stock" subtitle="On hand, reserved and available by position" />
+    <PageHeader title="Stock" subtitle="On hand, reserved and available by position" :next="nextActions" />
     <div class="card mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div>
             <label for="stock-scan" class="label">Scan</label>

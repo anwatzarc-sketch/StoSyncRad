@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
@@ -9,12 +9,23 @@ import PaymentConfirmForm from '@/components/portal/PaymentConfirmForm.vue';
 import { download, get } from '@/lib/api';
 import { formatDate, formatMoney, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /** One invoice: totals and balance from the billing ledger, verified payments, payment confirmations and the PDF. */
 const props = defineProps<{ invoiceId: string }>();
 const invoice = ref<Record<string, any> | null>(null);
 const error = ref<unknown>(null);
 const paying = ref(false);
+const nextActions = computed<NextAction[]>(() => {
+    const i = invoice.value;
+    if (!i) {
+        return [];
+    }
+
+    return i.can_confirm_payment
+        ? [{ label: 'I have paid — upload my bank slip', icon: 'coins', onClick: () => (paying.value = true), hint: 'We match the payment to this invoice once we receive it.' }]
+        : [{ label: 'All invoices', icon: 'file', href: '/portal/invoices', hint: Number(i.balance_due) > 0 ? undefined : 'This invoice is paid.' }];
+});
 
 async function load() {
     try {
@@ -41,7 +52,7 @@ function submitted(id: string) {
 
 <template>
     <Head :title="invoice?.document_number ?? 'Invoice'" />
-    <PageHeader :title="invoice?.document_number ?? 'Invoice'" subtitle="Invoice" back="/portal/invoices">
+    <PageHeader :title="invoice?.document_number ?? 'Invoice'" subtitle="Invoice" back="/portal/invoices" :next="nextActions">
         <template #actions><UiButton v-if="invoice" icon="download" @click="pdf">PDF</UiButton></template>
     </PageHeader>
     <ErrorSummary :error="error" />

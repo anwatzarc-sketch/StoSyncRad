@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import EnumSelect from '@/components/ui/EnumSelect.vue';
@@ -7,12 +7,25 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { enumLabel, loadEnums } from '@/lib/meta';
 import { formatDateTime } from '@/lib/format';
+import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
-/** Sign-ins, lockouts, MFA changes, token use — the identity security trail (Chapter 14). */
+/** Sign-ins, lockouts, MFA changes, token use — the identity security trail (Chapter 14). Next action: act on the account. */
+const { can } = useShared();
 const type = ref<string | null>(null);
 const events = ref<Record<string, any>[]>([]);
 const cursor = ref<string | null>(null);
 const error = ref<unknown>(null);
+
+const nextActions = computed<NextAction[]>(() => {
+    const flagged = events.value.find((e) => e.account_id && /(lock|fail|suspicious|reuse)/.test(String(e.event_type)));
+
+    return [
+        ...(flagged && can('identity.account.read') ? [{ label: 'Open the account', icon: 'user', href: `/r/accounts/${flagged.account_id}`,
+            hint: `Latest worrying event: ${flagged.event_type_label ?? enumLabel('security_event_type', flagged.event_type)}. Lock it, reset MFA or end its sessions there.` }] : []),
+        ...(can('audit.event.read') ? [{ label: 'Audit log', icon: 'shield', href: '/admin/audit' }] : []),
+    ];
+});
 
 async function load(append = false) {
     try {
@@ -31,7 +44,7 @@ onMounted(async () => {
 </script>
 
 <template>
-    <PageHeader title="Security events" />
+    <PageHeader title="Security events" :next="nextActions" />
     <div class="card mb-4 max-w-sm">
         <label for="se-type" class="label">Event</label>
         <EnumSelect id="se-type" v-model="type" enum-code="security_event_type" nullable placeholder="All events" @update:model-value="load()" />

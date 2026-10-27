@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
@@ -8,6 +8,7 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { api, download, get, post } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /** A payment confirmation: its review status, finance's note, the private evidence, and adding information when asked. */
 const props = defineProps<{ paymentId: string }>();
@@ -16,6 +17,15 @@ const error = ref<unknown>(null);
 const note = ref('');
 const files = ref<File[]>([]);
 const busy = ref(false);
+const nextActions = computed<NextAction[]>(() => {
+    if (!c.value) {
+        return [];
+    }
+
+    return c.value.status === 'info_requested'
+        ? [{ label: 'Send the information we asked for', icon: 'info', onClick: () => document.getElementById('pi-note')?.focus(), hint: 'Add a note or another document below.' }]
+        : [{ label: 'All payment confirmations', icon: 'coins', href: '/portal/payments' }];
+});
 
 const MESSAGES: Record<string, string> = {
     submitted: 'Our finance team is checking that the money reached our account. The invoice balance changes once it is verified.',
@@ -75,7 +85,7 @@ async function open(file: { id: string; filename: string }) {
 
 <template>
     <Head :title="c?.document_number ?? 'Payment'" />
-    <PageHeader :title="c?.document_number ?? 'Payment confirmation'" subtitle="Payment confirmation" back="/portal/payments" />
+    <PageHeader :title="c?.document_number ?? 'Payment confirmation'" subtitle="Payment confirmation" back="/portal/payments" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div v-if="c" class="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div class="space-y-6">

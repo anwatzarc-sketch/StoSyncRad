@@ -9,6 +9,7 @@ import { formatMoney } from '@/lib/format';
 import { attemptKey, completeAttempt } from '@/lib/idempotency';
 import { cart, clearCart, setQuantity } from '@/lib/portal';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /**
  * The cart turns into an order (every product has a list price) or a quotation request. Totals shown
@@ -24,6 +25,17 @@ const allPriced = computed(() => cart.lines.length > 0 && cart.lines.every((l) =
 const currencies = computed(() => [...new Set(cart.lines.filter((l) => l.price).map((l) => l.currency))]);
 const estimate = computed(() => cart.lines.reduce((sum, l) => sum + (l.price ? Number(l.price) * l.quantity : 0), 0));
 const lines = () => cart.lines.map((l) => ({ item_id: l.item_id, quantity: String(l.quantity) }));
+/** Next action: order when every price is known, otherwise ask for a quotation. */
+const nextActions = computed<NextAction[]>(() => {
+    if (!cart.lines.length) {
+        return [{ label: 'Browse products', icon: 'boxes', href: '/portal/catalog', hint: 'Your cart is empty.' }];
+    }
+
+    return allPriced.value
+        ? [{ label: 'Place the order', icon: 'check', onClick: () => void placeOrder(), hint: 'Every price is known — order straight away.' },
+            { label: 'Ask for a quotation instead', icon: 'clipboard', onClick: () => void requestQuote() }]
+        : [{ label: 'Ask for a quotation', icon: 'clipboard', onClick: () => void requestQuote(), hint: 'Some prices are on request; we send you a quotation.' }];
+});
 
 async function placeOrder() {
     busy.value = 'order';
@@ -63,7 +75,7 @@ async function requestQuote() {
 
 <template>
     <Head title="Cart" />
-    <PageHeader title="Your cart" back="/portal/catalog" />
+    <PageHeader title="Your cart" back="/portal/catalog" back-label="Products" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div v-if="!cart.lines.length" class="card text-center">
         <p class="text-ink-muted">Your cart is empty.</p>

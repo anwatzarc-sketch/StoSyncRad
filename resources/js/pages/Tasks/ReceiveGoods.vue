@@ -15,6 +15,7 @@ import { formatDate, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { usePosting } from '@/composables/usePosting';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Receive goods, step 2 — the guided dock flow (Chapter 08 §8.3): confirm the warehouse, scan each
@@ -59,6 +60,28 @@ const pending = computed(() => lines.value.filter((l) => !entries.value.some((e)
 const needsQc = (e: Entry) => e.line.qc_policy === 'inspect_on_receipt' && e.line.qc_checks.length > 0;
 const asksExpiry = (e: Entry) => e.line.expiry_policy === 'tracked_required' || e.line.expiry_policy === 'tracked_optional';
 const err = (i: number, field: string) => fieldErrors.value[`lines.${i}.${field}`];
+const focus = (id: string) => {
+    const el = document.getElementById(id);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.focus();
+};
+/** Next action of the dock flow: confirm the warehouse, scan what is still on the order, then finish. (When done, the result panel says what follows.) */
+const nextActions = computed<NextAction[]>(() => {
+    if (!order.value || result.value) {
+        return [];
+    }
+    if (!warehouseConfirmed.value) {
+        return [{ label: 'Confirm the warehouse', icon: 'building', onClick: () => focus('receive-warehouse'),
+            hint: `Check the goods are arriving at ${order.value.warehouse_name ?? order.value.warehouse}.` }];
+    }
+    const scanNext: NextAction = { label: 'Scan the next item', icon: 'scan', onClick: () => focus('receive-scan'),
+        hint: `${pending.value.length} order line(s) not received yet${entries.value.length ? `; ${entries.value.length} on this receipt` : ''}.` };
+
+    return entries.value.length
+        ? [{ label: 'Review and finish', icon: 'check', onClick: () => focus('receive-finish'), hint: `${entries.value.length} line(s) on this receipt. Finish to submit${can('receiving.goods_receipt.post') ? ' and post' : ''} it.` },
+            ...(pending.value.length ? [{ ...scanNext, hint: undefined }] : [])]
+        : [scanNext];
+});
 
 onMounted(async () => {
     await loadEnums().catch(() => undefined);
@@ -181,7 +204,7 @@ async function finish(post: boolean) {
 </script>
 
 <template>
-    <PageHeader :title="order ? `Receive ${order.document_number}` : 'Receive goods'" :subtitle="order ? `${order.supplier ?? 'Supplier'} → ${order.warehouse_name ?? order.warehouse}` : null" back="/tasks/receiving" />
+    <PageHeader :title="order ? `Receive ${order.document_number}` : 'Receive goods'" :subtitle="order ? `${order.supplier ?? 'Supplier'} → ${order.warehouse_name ?? order.warehouse}` : null" back="/tasks/receiving" :next="nextActions" />
     <ErrorSummary :error="loadError ?? saveError" />
 
     <!-- Done -->
@@ -210,7 +233,7 @@ async function finish(post: boolean) {
         <section class="card mb-4">
             <h2 class="mb-2 font-semibold"><span class="mr-2 text-ink-muted">1</span>Receiving into</h2>
             <label class="flex min-h-11 items-center gap-3 text-sm">
-                <input v-model="warehouseConfirmed" type="checkbox" class="size-5 accent-brand">
+                <input id="receive-warehouse" v-model="warehouseConfirmed" type="checkbox" class="size-5 accent-brand">
                 I am receiving into <strong>{{ order.warehouse_name ?? order.warehouse }}</strong> ({{ order.warehouse }})
             </label>
             <div class="mt-3 max-w-sm">
@@ -341,7 +364,7 @@ async function finish(post: boolean) {
         </ul>
 
         <!-- 4. Review & finish -->
-        <section v-if="entries.length" class="card mt-4">
+        <section v-if="entries.length" id="receive-finish" tabindex="-1" class="card mt-4">
             <h2 class="mb-2 font-semibold"><span class="mr-2 text-ink-muted">3</span>Review and finish</h2>
             <ul class="mb-4 divide-y divide-line text-sm">
                 <li v-for="e in entries" :key="e.key" class="flex flex-wrap justify-between gap-2 py-2">

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Schema;
 
 use App\Support\Enums\SystemEnum;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Declarative description of one table property (Chapter 05 §5.3).
@@ -38,7 +39,7 @@ final class Property
     /** @var class-string<SystemEnum>|null */
     public ?string $enumClass = null;
 
-    /** @var class-string<\Illuminate\Database\Eloquent\Model>|null */
+    /** @var class-string<Model>|null */
     public ?string $references = null;
 
     public ?string $referenceStatusColumn = null;
@@ -73,10 +74,10 @@ final class Property
 
     public ?string $before = null;
 
-    /** @var class-string<TableSchema>|null  schema of each element for ARRAY properties */
+    /** @var class-string<TableSchema>|null schema of each element for ARRAY properties */
     public ?string $items = null;
 
-    /** @var Property|null  scalar element definition for ARRAY properties */
+    /** @var Property|null scalar element definition for ARRAY properties */
     public ?Property $itemProperty = null;
 
     public bool $trim = false;
@@ -315,7 +316,7 @@ final class Property
     }
 
     /**
-     * @param  class-string<\Illuminate\Database\Eloquent\Model>  $model
+     * @param  class-string<Model>  $model
      * @param  array<int, string>  $activeValues
      */
     public function references(string $model, ?string $statusColumn = null, array $activeValues = []): self
@@ -334,7 +335,6 @@ final class Property
         return $this;
     }
 
-    /** @param  string  ...$states */
     public function immutableAfter(string ...$states): self
     {
         $this->immutableAfter = $states;
@@ -482,6 +482,7 @@ final class Property
             'item_type' => $this->itemProperty?->type->value,
             'item_enum' => $this->itemProperty?->enumClass ? $this->itemProperty->enumClass::enumCode() : null,
             'item_enum_values' => $this->itemProperty?->enumClass ? $this->itemProperty->enumClass::values() : null,
+            'item_references' => $this->itemProperty?->references ? class_basename($this->itemProperty->references) : null,
             'unique' => $this->unique ?: null,
             'virtual' => $this->virtual ?: null,
         ], static fn ($v) => $v !== null);

@@ -80,7 +80,7 @@ Route::middleware('auth')->name('app.')->group(function (): void {
 
     Route::prefix('admin')->name('admin.')->group(function (): void {
         Route::inertia('/', 'Admin/Index')->name('index');
-        foreach (['company' => 'Company', 'config' => 'Configuration', 'brand' => 'Brand', 'templates' => 'Templates', 'lookups' => 'Lookups',
+        foreach (['company' => 'Company', 'config' => 'Configuration', 'brand' => 'Brand', 'templates' => 'Templates', 'lookups' => 'Lookups', 'translations' => 'Translations',
             'numbering' => 'Numbering', 'bundles' => 'Bundles', 'webhooks' => 'Webhooks', 'api-tokens' => 'ApiTokens', 'audit' => 'Audit',
             'security-events' => 'SecurityEvents', 'health' => 'Health'] as $path => $page) {
             Route::inertia("/$path", "Admin/$page")->name(str_replace('-', '_', $path));

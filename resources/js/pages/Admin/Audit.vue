@@ -1,14 +1,23 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { buildUrl, download, get } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
-/** Append-only audit trail (Chapter 14 §14.5): who did what, to which record, why, with correlation ids. */
+/**
+ * Append-only audit trail (Chapter 14 §14.5): who did what, to which record, why, with correlation ids;
+ * and the access review export (every account, role, permission and scope) for periodic sign-off.
+ */
 const { can } = useShared();
+const nextActions = computed<NextAction[]>(() => [
+    ...(can('identity.access_review.export') ? [{ label: 'Download the access review', icon: 'download', onClick: () => void accessReview(),
+        hint: 'Who can do what, where — for the periodic access sign-off.' }] : []),
+    ...(can('identity.security_event.read') ? [{ label: 'Security events', icon: 'shield', href: '/admin/security-events' }] : []),
+]);
 const filters = reactive({ event_type: '', subject_type: '', subject_id: '', from: '', to: '' });
 const events = ref<Record<string, any>[]>([]);
 const cursor = ref<string | null>(null);
@@ -40,11 +49,19 @@ async function exportCsv() {
     }
 }
 
+async function accessReview() {
+    try {
+        await download('/api/v1/admin/access-review', 'access-review.csv');
+    } catch (e) {
+        error.value = e;
+    }
+}
+
 onMounted(load);
 </script>
 
 <template>
-    <PageHeader title="Audit log">
+    <PageHeader title="Audit log" :next="nextActions">
         <template #actions>
             <UiButton v-if="can('audit.event.export')" icon="download" @click="exportCsv">Export CSV</UiButton>
         </template>

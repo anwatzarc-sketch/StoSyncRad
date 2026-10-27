@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
@@ -8,9 +8,30 @@ import { del, get, post } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
-/** API tokens for service accounts only (integrations: e-commerce intake, carriers, ERP). */
+/**
+ * API tokens for service accounts only (integrations: e-commerce intake, carriers, ERP), and the
+ * endpoints those integrations call. Next action: store a just-issued token, else issue one.
+ */
 const { can } = useShared();
+/** Endpoints meant for other systems, with how they authenticate (Chapter 11 §11.8). */
+const INTEGRATIONS = [
+    { method: 'POST', path: '/api/v1/intake/sales-orders', what: 'Create a sales order from a shop or marketplace', auth: 'Bearer token of a service account with “sales order intake”' },
+    { method: 'POST', path: '/api/v1/intake/carrier-events', what: 'Report a shipment status from a carrier', auth: 'Bearer token of a service account allowed to receive carrier webhooks' },
+    { method: 'POST', path: '/api/v1/integrations/carriers/{carrier}/events', what: 'Carrier webhook (shipment events)', auth: 'X-Webhook-Signature (HMAC of the body with the carrier webhook secret in Configuration)' },
+    { method: 'GET', path: '/api/v1/meta/schemas', what: 'Every payload schema, for building the integration', auth: 'Bearer token' },
+    { method: 'GET', path: '/api/v1/meta/brand', what: 'Public brand profile (name, colours, logos)', auth: 'None' },
+];
+const nextActions = computed<NextAction[]>(() => {
+    if (issued.value) {
+        return [{ label: 'I have stored the token', icon: 'check', onClick: () => (issued.value = null), hint: 'Copy it into the other system now — it is never shown again.' }];
+    }
+
+    return can('identity.api_token.issue')
+        ? [{ label: 'Issue a token', icon: 'key', onClick: () => document.getElementById('tok-name')?.focus(), hint: 'Tokens belong to a service account and act with its roles and warehouses.' }]
+        : [];
+});
 const tokens = ref<Record<string, any>[]>([]);
 const draft = reactive<{ user_account_id: string | null; name: string; expires_in_days: number }>({ user_account_id: null, name: '', expires_in_days: 90 });
 const issued = ref<string | null>(null);
@@ -46,7 +67,7 @@ onMounted(() => load().catch((e) => (error.value = e)));
 </script>
 
 <template>
-    <PageHeader title="API tokens" subtitle="Bearer tokens for service accounts; each acts with its account's roles and scopes" />
+    <PageHeader title="API tokens" subtitle="Bearer tokens for service accounts; each acts with its account's roles and scopes" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div v-if="issued" class="mb-4 rounded-brand border border-warning/40 bg-warning/10 p-4 text-sm" role="status">
         <p class="font-semibold">New token — copy it now, it is not shown again:</p>
@@ -80,4 +101,15 @@ onMounted(() => load().catch((e) => (error.value = e)));
         </div>
         <UiButton type="submit" variant="primary" :disabled="!draft.user_account_id || !draft.name">Issue token</UiButton>
     </form>
+
+    <section class="card mt-6" aria-labelledby="integrations-title">
+        <h2 id="integrations-title" class="font-semibold">Endpoints for integrations</h2>
+        <p class="mb-3 text-sm text-ink-muted">What other systems call with a token from this page. Every call is checked against the service account's permissions and warehouses.</p>
+        <ul class="divide-y divide-line text-sm">
+            <li v-for="e in INTEGRATIONS" :key="e.path" class="grid gap-1 py-2 md:grid-cols-[minmax(0,22rem)_1fr]">
+                <code class="break-all font-mono text-xs"><span class="font-semibold">{{ e.method }}</span> {{ e.path }}</code>
+                <span>{{ e.what }} <span class="block text-xs text-ink-muted">{{ e.auth }}</span></span>
+            </li>
+        </ul>
+    </section>
 </template>

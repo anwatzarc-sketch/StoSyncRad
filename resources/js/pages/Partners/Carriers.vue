@@ -1,16 +1,28 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get, patch } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 const { can } = useShared();
 const carriers = ref<Record<string, any>[]>([]);
 const templates = ref<Record<string, string>>({});
 const error = ref<unknown>(null);
+/** Next action: give carriers without one a tracking link (customers see it), else add a carrier. */
+const nextActions = computed<NextAction[]>(() => {
+    const missing = can('partners.carrier.manage') ? carriers.value.find((c) => !c.tracking_url_template) : undefined;
+
+    return [
+        ...(missing ? [{ label: `Set ${missing.name}'s tracking link`, icon: 'link', onClick: () => document.getElementById(`tpl-${missing.id}`)?.focus(),
+            hint: 'With a tracking link, shipment pages and customers can follow a parcel.' }] : []),
+        ...(can('partners.partner.create') ? [{ label: 'Add a carrier', icon: 'plus', href: '/r/partners/new?prefill[partner_types][]=carrier',
+            hint: missing ? undefined : 'Carriers are partners of type carrier.' }] : []),
+    ];
+});
 
 onMounted(async () => {
     try {
@@ -33,7 +45,7 @@ async function save(id: string) {
 </script>
 
 <template>
-    <PageHeader title="Carriers" subtitle="Partners of type carrier; add new carriers under Partners" />
+    <PageHeader title="Carriers" subtitle="Partners of type carrier; add new carriers under Partners" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="card">
         <p v-if="carriers.length === 0" class="py-8 text-center text-sm text-ink-muted">No carriers yet.</p>

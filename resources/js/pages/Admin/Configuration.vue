@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { nextSetupStep } from '@/lib/adminFlow';
+import { useShared } from '@/composables/useShared';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
@@ -8,14 +10,19 @@ import ConfigValueInput from '@/components/ConfigValueInput.vue';
 import { get, post, put } from '@/lib/api';
 import { humanize, loadEnums } from '@/lib/meta';
 import { notify } from '@/lib/toast';
-import type { ConfigKey } from '@/types/shared';
+import type { ConfigKey, NextAction } from '@/types/shared';
 
 /**
  * Configuration registry (Chapter 03 §3.2): every declared key with its effective value and where it
- * comes from (default, global or a scope override). Each group has its own manage permission.
+ * comes from (default, global or a scope override). Each group has its own manage permission. Keys
+ * with their own rules are saved through their dedicated endpoint (DEDICATED).
  */
 type Row = ConfigKey & { effective: unknown; source: string; source_scope_id: string | null; can_manage: boolean };
 
+const { nav } = useShared();
+/** Next action: the next going-live step (lib/adminFlow). */
+const nextActions = computed<NextAction[]>(() => [nextSetupStep('/admin/config', nav.value)]
+    .filter((a): a is NextAction => !!a));
 const rows = ref<Row[]>([]);
 const groups = ref<string[]>([]);
 const group = ref('');
@@ -24,6 +31,10 @@ const editing = reactive<Record<string, { value: unknown; scope: string; scopeId
 const error = ref<unknown>(null);
 
 const SCOPE_RESOURCES: Record<string, string> = { warehouse: 'warehouses', branch: 'branches', category: 'item-categories', item: 'items' };
+/** Keys changed through their own endpoint (its own checks and step-up); the generic one refuses them. */
+const DEDICATED: Record<string, (value: unknown, reason: string | null) => Promise<unknown>> = {
+    'identity.accounts_per_person': (value, reason) => put('/api/v1/admin/accounts-per-person-policy', { policy: value, reason }),
+};
 const visible = computed(() => rows.value.filter((r) => (!group.value || r.group === group.value)
     && (!q.value || `${r.key} ${r.label} ${r.help}`.toLowerCase().includes(q.value.toLowerCase()))));
 
@@ -46,7 +57,9 @@ async function save(row: Row) {
     e.busy = true;
     error.value = null;
     try {
-        await put(`/api/v1/admin/config/${row.key}`, { value: e.value, scope_type: e.scope, scope_id: e.scope === 'global' ? null : e.scopeId, reason: e.reason || null });
+        const dedicated = DEDICATED[row.key];
+        await (dedicated ? dedicated(e.value, e.reason || null)
+            : put(`/api/v1/admin/config/${row.key}`, { value: e.value, scope_type: e.scope, scope_id: e.scope === 'global' ? null : e.scopeId, reason: e.reason || null }));
         notify(`${row.label} saved.${row.restart_required ? ' Takes effect after a restart.' : ''}`);
         delete editing[row.key];
         await load();
@@ -92,7 +105,7 @@ async function testMail() {
 </script>
 
 <template>
-    <PageHeader title="Configuration" subtitle="Every behaviour of the platform, with defaults and scoped overrides" />
+    <PageHeader title="Configuration" :next="nextActions" subtitle="Every behaviour of the platform, with defaults and scoped overrides" />
     <ErrorSummary :error="error" />
     <div class="card mb-4 grid gap-3 md:grid-cols-[16rem_1fr]">
         <select v-model="group" class="input" aria-label="Group">

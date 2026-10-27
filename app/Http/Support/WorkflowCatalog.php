@@ -40,6 +40,7 @@ final class WorkflowCatalog
                 ['label' => 'Receive goods', 'href' => '/tasks/receiving', 'icon' => 'inbox', 'permission' => ['receiving.goods_receipt.create']],
                 ['label' => 'Put away', 'href' => '/tasks/putaway', 'icon' => 'boxes', 'permission' => ['receiving.putaway.post']],
                 ['label' => 'Return to supplier', 'href' => '/r/supplier-returns/new', 'icon' => 'refresh', 'permission' => ['procurement.supplier_return.create']],
+                ['label' => 'Receive from production', 'href' => '/r/movements/new?via=production-receipt', 'icon' => 'factory', 'permission' => ['fulfillment.production.receive']],
             ]],
         'transfers' => ['label' => 'Transfers & moves', 'icon' => 'truck', 'description' => 'Stock moving between branches, warehouses and bins.',
             'resources' => ['transfers', 'transfer-discrepancies', 'allocation-plans', 'relocations', 'condition-changes'],
@@ -55,11 +56,13 @@ final class WorkflowCatalog
                 ['label' => 'Request stock', 'href' => '/r/stock-requests/new', 'icon' => 'clipboard',
                     'permission' => ['fulfillment.stock_request.create', 'fulfillment.stock_request.create_own']],
                 ['label' => 'Issue stock', 'href' => '/r/stock-issues/new', 'icon' => 'package', 'permission' => ['fulfillment.stock_issue.create']],
+                ['label' => 'Issue to production', 'href' => '/r/stock-issues/new?via=production', 'icon' => 'factory', 'permission' => ['fulfillment.production.issue']],
             ]],
         'sales' => ['label' => 'Sales & delivery', 'icon' => 'bag', 'description' => 'Customer orders from confirmation to delivery, and returns.',
             'resources' => ['sales-orders', 'pick-lists', 'shipments', 'customer-returns'],
             'start' => [
                 ['label' => 'New sales order', 'href' => '/r/sales-orders/new', 'icon' => 'bag', 'permission' => ['fulfillment.sales_order.create']],
+                ['label' => 'Plan a pick wave', 'href' => '/r/pick-lists/new?via=wave', 'icon' => 'layers', 'permission' => ['fulfillment.pick_wave.manage']],
             ]],
         'customers' => ['label' => 'Customers & billing', 'icon' => 'users', 'description' => 'Quotations, registrations, invoices and payments with customers.',
             'resources' => ['quotations', 'customer-registrations', 'payment-confirmations', 'invoices', 'payments', 'delivery-acknowledgements', 'customer-invitations'],
@@ -81,6 +84,104 @@ final class WorkflowCatalog
                 ['label' => 'New purchase request', 'href' => '/r/purchase-requests/new', 'icon' => 'clipboard', 'permission' => ['procurement.purchase_request.create']],
                 ['label' => 'New purchase order', 'href' => '/r/purchase-orders/new', 'icon' => 'cart', 'permission' => ['procurement.purchase_order.create']],
             ]],
+    ];
+
+    /**
+     * What usually comes next once a record is in a given state: the hand-off to the next document of
+     * the chain (an approved purchase request becomes a purchase order, a posted receipt is put away) or
+     * the next set-up step of master data (a new warehouse gets storage locations). Shown on the record
+     * page to people holding `permission`; `when` limits a link to records whose field holds one of the
+     * values (list fields: any of them). `{field}` in `href` is filled from the record; `prefill[…]`
+     * pre-fills the form it opens. Navigation only — the target page and the API check everything again.
+     *
+     * @var array<string, array<int, array{label: string, href: string, icon: string, permission: string, when?: array<string, array<int, string>>}>>
+     */
+    public const NEXT = [
+        'purchase-requests' => [
+            ['label' => 'Create the purchase order', 'href' => '/r/purchase-orders/new?prefill[purchase_request_id]={id}', 'icon' => 'cart',
+                'permission' => 'procurement.purchase_order.create', 'when' => ['status' => ['approved', 'partially_ordered']]],
+        ],
+        'purchase-orders' => [
+            ['label' => 'Receive the goods', 'href' => '/tasks/receiving/{id}', 'icon' => 'inbox', 'permission' => 'receiving.goods_receipt.create',
+                'when' => ['status' => ['sent', 'partially_received']]],
+        ],
+        'goods-receipts' => [
+            ['label' => 'Put the goods away', 'href' => '/tasks/putaway', 'icon' => 'boxes', 'permission' => 'receiving.putaway.post', 'when' => ['status' => ['posted']]],
+        ],
+        'putaway-tasks' => [
+            ['label' => 'Put away the next goods', 'href' => '/tasks/putaway', 'icon' => 'boxes', 'permission' => 'receiving.putaway.post', 'when' => ['status' => ['posted']]],
+        ],
+        'transfers' => [
+            ['label' => 'Resolve the discrepancies', 'href' => '/r/transfer-discrepancies?filter[status]=open,investigating', 'icon' => 'alert',
+                'permission' => 'transfers.discrepancy.resolve', 'when' => ['status' => ['discrepancy_review']]],
+        ],
+        'stock-requests' => [
+            ['label' => 'Issue the stock', 'href' => '/r/stock-issues/new?prefill[stock_request_id]={id}', 'icon' => 'package',
+                'permission' => 'fulfillment.stock_issue.create', 'when' => ['status' => ['approved', 'partially_fulfilled']]],
+        ],
+        'sales-orders' => [
+            ['label' => 'Create a pick list', 'href' => '/r/pick-lists/new?prefill[type]=sales_order&prefill[source_id]={id}', 'icon' => 'list-check',
+                'permission' => 'fulfillment.pick_list.assign', 'when' => ['status' => ['confirmed', 'reserved']]],
+        ],
+        'invoices' => [
+            ['label' => 'Record a payment', 'href' => '/r/payments/new?prefill[customer_partner_id]={customer_partner_id}', 'icon' => 'coins',
+                'permission' => 'billing.payment.record', 'when' => ['status' => ['issued', 'partially_paid']]],
+        ],
+        'stocktakes' => [
+            ['label' => 'Check the stock valuation', 'href' => '/valuation', 'icon' => 'coins', 'permission' => 'inventory.valuation.read', 'when' => ['status' => ['posted']]],
+        ],
+        'opening-balances' => [
+            ['label' => 'Run a stock reconciliation', 'href' => '/r/reconciliation-runs/new', 'icon' => 'refresh', 'permission' => 'inventory.reconciliation.run',
+                'when' => ['status' => ['posted']]],
+        ],
+        'movement-reversals' => [
+            ['label' => 'Open the original movement', 'href' => '/r/movements/{original_movement_id}', 'icon' => 'history', 'permission' => 'inventory.movement.read'],
+        ],
+        'reconciliation-runs' => [
+            ['label' => 'Review the differences', 'href' => '/r/reconciliation-findings?filter[status]=open,investigating', 'icon' => 'alert',
+                'permission' => 'inventory.reconciliation.read', 'when' => ['status' => ['completed_with_findings']]],
+        ],
+        'reconciliation-findings' => [
+            ['label' => 'Run another reconciliation', 'href' => '/r/reconciliation-runs/new', 'icon' => 'refresh', 'permission' => 'inventory.reconciliation.run',
+                'when' => ['status' => ['repaired', 'accepted']]],
+        ],
+        'lots' => [
+            ['label' => 'Trace this lot', 'href' => '/trace?lot={id}', 'icon' => 'route', 'permission' => 'inventory.trace.read'],
+        ],
+        'items' => [
+            ['label' => 'See its stock', 'href' => '/stock/items/{id}', 'icon' => 'boxes', 'permission' => 'inventory.stock.read'],
+            ['label' => 'Set a reorder rule', 'href' => '/r/reorder-rules/new?prefill[item_id]={id}', 'icon' => 'refresh', 'permission' => 'catalog.reorder_rule.manage'],
+        ],
+        'item-categories' => [
+            ['label' => 'Add an item to this category', 'href' => '/r/items/new?prefill[category_id]={id}', 'icon' => 'package', 'permission' => 'catalog.item.create'],
+        ],
+        'branches' => [
+            ['label' => 'Add a warehouse', 'href' => '/r/warehouses/new?prefill[branch_id]={id}', 'icon' => 'boxes', 'permission' => 'organization.warehouse.create'],
+        ],
+        'warehouses' => [
+            ['label' => 'Add a storage location', 'href' => '/r/storage-locations/new?prefill[warehouse_id]={id}', 'icon' => 'route',
+                'permission' => 'organization.storage_location.create'],
+            ['label' => 'Add a put-away rule', 'href' => '/r/putaway-rules/new?prefill[warehouse_id]={id}', 'icon' => 'inbox', 'permission' => 'organization.putaway_rule.manage'],
+            ['label' => 'Load opening balances', 'href' => '/r/opening-balances/new?prefill[warehouse_id]={id}', 'icon' => 'upload',
+                'permission' => 'inventory.opening_balance.create'],
+        ],
+        'partners' => [
+            ['label' => 'New purchase order', 'href' => '/r/purchase-orders/new?prefill[supplier_id]={id}', 'icon' => 'cart',
+                'permission' => 'procurement.purchase_order.create', 'when' => ['partner_types' => ['supplier']]],
+            ['label' => 'New sales order', 'href' => '/r/sales-orders/new?prefill[customer_partner_id]={id}', 'icon' => 'bag',
+                'permission' => 'fulfillment.sales_order.create', 'when' => ['partner_types' => ['customer']]],
+            ['label' => 'Invite to the customer portal', 'href' => '/r/customer-invitations/new?prefill[partner_id]={id}', 'icon' => 'mail',
+                'permission' => 'portal.invitation.create', 'when' => ['partner_types' => ['customer']]],
+        ],
+        'persons' => [
+            ['label' => 'Create a sign-in account', 'href' => '/r/accounts/new?prefill[person_id]={id}', 'icon' => 'user', 'permission' => 'identity.account.create'],
+        ],
+        'accounts' => [
+            ['label' => 'Assign a role', 'href' => '/r/role-assignments/new?prefill[user_account_id]={id}', 'icon' => 'key', 'permission' => 'identity.assignment.create'],
+        ],
+        'roles' => [
+            ['label' => 'Assign this role to someone', 'href' => '/r/role-assignments/new?prefill[role_id]={id}', 'icon' => 'link', 'permission' => 'identity.assignment.create'],
+        ],
     ];
 
     /**
@@ -464,6 +565,30 @@ final class WorkflowCatalog
                 'queues' => [
                     'approve' => $approve('Opening balances to approve', ['pending_approval'], 'inventory.opening_balance.approve'),
                     'post' => $act('Opening balances to post', ['approved'], 'inventory.opening_balance.post'),
+                ]],
+
+            // ---- Ledger corrections (Stock → Reversals; Administration → Oversight) ----------
+            // Requested from a movement's page; a second person approves (the service enforces it) and the reversal posts.
+            'movement-reversals' => ['noun' => 'stock reversal', 'hub' => null, 'status_enum' => Inv\ReversalStatus::class,
+                'document_type' => null, 'steps' => ['pending_approval', 'posted'], 'editable' => [],
+                'actions' => [],
+                'extra' => [
+                    'approve' => ['route' => 'api.v1.wf.reversals.approve', 'from' => ['pending_approval'], 'primary' => true, 'label' => 'Approve and post',
+                        'params' => ['reversalId' => 'id']],
+                    'reject' => ['route' => 'api.v1.wf.reversals.reject', 'from' => ['pending_approval'], 'params' => ['reversalId' => 'id']],
+                ],
+                'queues' => [
+                    'approve' => $approve('Stock reversals to approve', ['pending_approval'], 'inventory.movement.reverse', ['sod' => null]),
+                ]],
+            'reconciliation-findings' => ['noun' => 'stock difference', 'hub' => null, 'status_enum' => Inv\ReconciliationFindingStatus::class,
+                'document_type' => null, 'steps' => ['open', 'repaired'], 'editable' => [],
+                'actions' => [],
+                'extra' => [
+                    'repair' => ['route' => 'api.v1.wf.reconciliation.findings.repair', 'from' => ['open', 'investigating'], 'primary' => true,
+                        'label' => 'Repair the stock figures', 'params' => ['findingId' => 'id']],
+                ],
+                'queues' => [
+                    'repair' => $act('Stock differences to repair', ['open', 'investigating'], 'inventory.reconciliation.repair'),
                 ]],
         ];
     }

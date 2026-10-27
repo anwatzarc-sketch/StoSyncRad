@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
@@ -7,13 +7,17 @@ import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
-import { addToCart, type PortalItem } from '@/lib/portal';
+import { addToCart, cart, type PortalItem } from '@/lib/portal';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 const props = defineProps<{ productId: string }>();
 const item = ref<(PortalItem & { description_long: string | null; max_order_qty: string | null }) | null>(null);
 const quantity = ref(1);
 const error = ref<unknown>(null);
+const nextActions = computed<NextAction[]>(() => (cart.lines.length
+    ? [{ label: `Go to your cart (${cart.lines.length})`, icon: 'cart', href: '/portal/cart', hint: 'Order, or ask us for a quotation.' }]
+    : []));
 
 onMounted(async () => {
     try {
@@ -33,7 +37,7 @@ function add() {
 
 <template>
     <Head :title="item?.name ?? 'Product'" />
-    <PageHeader :title="item?.name ?? 'Product'" :subtitle="item?.sku" back="/portal/catalog" />
+    <PageHeader :title="item?.name ?? 'Product'" :subtitle="item?.sku" back="/portal/catalog" back-label="Products" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div v-if="item" class="grid gap-6 md:grid-cols-[18rem_1fr]">
         <div class="grid aspect-square place-items-center overflow-hidden rounded-brand border border-line bg-surface">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
@@ -8,6 +8,7 @@ import { get, post } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /** Outbound webhooks (Chapter 11 §11.8): HMAC-signed events, deliveries with retries, dead letters. */
 const { can } = useShared();
@@ -17,6 +18,22 @@ const dead = ref<Record<string, any>[]>([]);
 const draft = reactive({ name: '', url: '', events: 'transfers.*\nreceiving.*' });
 const secret = ref<string | null>(null);
 const error = ref<unknown>(null);
+
+/** Next action: re-send what failed, else register a first endpoint. */
+const nextActions = computed<NextAction[]>(() => {
+    if (dead.value.length && can('messaging.outbox.retry')) {
+        return [{ label: `Retry ${dead.value.length} dead-lettered event(s)`, icon: 'refresh', onClick: () => void action('/api/v1/admin/outbox/retry', {}, 'Events re-queued.'),
+            hint: 'These events could not be delivered after every retry.' }];
+    }
+    if (deliveries.value.length) {
+        return [{ label: 'Check the failed deliveries', icon: 'alert', onClick: () => document.getElementById('failed-deliveries')?.scrollIntoView({ behavior: 'smooth' }),
+            hint: `${deliveries.value.length} delivery(ies) failed — fix the receiving end, then retry.` }];
+    }
+
+    return !endpoints.value.length && can('messaging.webhook.manage')
+        ? [{ label: 'Register an endpoint', icon: 'plus', onClick: () => document.getElementById('wh-name')?.focus(), hint: 'Other systems hear about transfers, receipts and more as they happen.' }]
+        : [];
+});
 
 async function load() {
     endpoints.value = (await get('/api/v1/admin/webhooks')).data;
@@ -56,7 +73,7 @@ onMounted(() => load().catch((e) => (error.value = e)));
 </script>
 
 <template>
-    <PageHeader title="Webhooks" subtitle="Signed with HMAC-SHA256: header X-Webhook-Signature: t=<unix>,v1=<hex of t.body>" />
+    <PageHeader title="Webhooks" subtitle="Signed with HMAC-SHA256: header X-Webhook-Signature: t=<unix>,v1=<hex of t.body>" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div v-if="secret" class="mb-4 rounded-brand border border-warning/40 bg-warning/10 p-4 text-sm" role="status">
         <p class="font-semibold">Signing secret — copy it now, it is not shown again:</p>
@@ -97,7 +114,7 @@ onMounted(() => load().catch((e) => (error.value = e)));
         </form>
     </section>
 
-    <section class="card mb-6">
+    <section id="failed-deliveries" class="card mb-6">
         <h2 class="mb-3 text-lg font-semibold">Failed deliveries</h2>
         <p v-if="deliveries.length === 0" class="text-sm text-ink-muted">None.</p>
         <ul class="divide-y divide-line">

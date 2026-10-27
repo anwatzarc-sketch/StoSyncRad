@@ -11,12 +11,14 @@ import { get } from '@/lib/api';
 import { enumLabel, humanize, loadEnums, loadSchema, propertyLabel, type SchemaProperty } from '@/lib/meta';
 import { columnsFor } from '@/lib/display';
 import { useShared } from '@/composables/useShared';
-import type { ResourceMeta } from '@/types/shared';
+import { nextSetupStep } from '@/lib/adminFlow';
+import type { NextAction, ResourceMeta } from '@/types/shared';
 
 /**
  * Generic, schema-driven list for any registered resource (search, enum filters, cursor paging).
  * `?filter[field]=a,b` in the URL (links from work queues and alerts) pre-filters the list and shows
- * as removable chips.
+ * as removable chips. Next action: start a new record (with the document's workflow spelled out) or
+ * go to the hub where its documents wait for people.
  */
 const props = defineProps<{ resource: ResourceMeta }>();
 
@@ -38,6 +40,25 @@ const enumFilters = computed(() => Object.entries(properties.value)
     .filter(([name, p]) => p.filterable && p.type === 'enum' && p.enum && !(name in urlFilters.value)).slice(0, 3));
 const columns = computed(() => columnsFor(properties.value, rows.value[0]));
 const inStock = computed(() => nav.value.find((s) => s.area === 'stock')?.items.some((i) => i.href === `/r/${props.resource.key}`) ?? false);
+const inAdmin = computed(() => nav.value.some((s) => s.area === 'admin' && s.items.some((i) => i.href === `/r/${props.resource.key}`)));
+const back = computed(() => (props.resource.hub ? { href: `/work/${props.resource.hub.key}`, label: props.resource.hub.label }
+    : inAdmin.value ? { href: '/admin', label: 'Administration' } : inStock.value ? { href: '/stock', label: 'Stock' } : null));
+const nextActions = computed<NextAction[]>(() => {
+    const wf = props.resource.workflow;
+    const path = wf ? wf.steps.map((st) => enumLabel(wf.status_enum, st)).join(' → ') : null;
+    const out: NextAction[] = [];
+    if (props.resource.can_create) {
+        out.push({ label: `New ${props.resource.noun}`, icon: 'plus', href: `/r/${props.resource.key}/new`,
+            hint: path ? `A new ${props.resource.noun} goes ${path}.` : `Add a ${props.resource.noun}, or open one below to work on it.` });
+    }
+    if (props.resource.hub) {
+        out.push({ label: `What is waiting in ${props.resource.hub.label}`, icon: 'clipboard', href: `/work/${props.resource.hub.key}`,
+            hint: `Documents waiting for your action are listed in ${props.resource.hub.label}.` });
+    }
+    const setup = nextSetupStep(`/r/${props.resource.key}`, nav.value);
+
+    return setup ? [...out, out.length ? { ...setup, hint: undefined } : setup] : out;
+});
 const chips = computed(() => Object.entries(urlFilters.value).map(([name, value]) => {
     const p = properties.value[name];
 
@@ -93,11 +114,7 @@ watch([filters, urlFilters], () => void load(), { deep: true });
 
 <template>
     <AreaTabs v-if="inStock" area="stock" />
-    <PageHeader :title="resource.label">
-        <template #actions>
-            <UiButton v-if="resource.can_create" variant="primary" icon="plus" :href="`/r/${resource.key}/new`">New {{ resource.noun }}</UiButton>
-        </template>
-    </PageHeader>
+    <PageHeader :title="resource.label" :back="back?.href" :back-label="back?.label" :next="nextActions" />
 
     <div v-if="chips.length" class="mb-3 flex flex-wrap gap-2" aria-label="Active filters">
         <button

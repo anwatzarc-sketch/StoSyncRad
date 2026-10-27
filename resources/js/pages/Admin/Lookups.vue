@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { nextSetupStep } from '@/lib/adminFlow';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get, put } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /** Admin-editable lists (reasons, payment terms, departments…) — values carry no code semantics. */
-const { can } = useShared();
+const { can, nav } = useShared();
+/** Next action: the next going-live step (lib/adminFlow). */
+const nextActions = computed<NextAction[]>(() => [nextSetupStep('/admin/lookups', nav.value)]
+    .filter((a): a is NextAction => !!a));
 const lookups = ref<Record<string, any>[]>([]);
 const selected = ref<string>('');
 const draft = reactive({ code: '', label: '', sort_order: 0, is_active: true });
@@ -37,7 +42,7 @@ onMounted(() => load().catch((e) => (error.value = e)));
 </script>
 
 <template>
-    <PageHeader title="Lookups" />
+    <PageHeader title="Lookups" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="grid gap-6 lg:grid-cols-[18rem_1fr]">
         <nav class="card p-2" aria-label="Lookups">

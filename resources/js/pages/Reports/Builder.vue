@@ -11,6 +11,7 @@ import { enumLabel, loadEnums } from '@/lib/meta';
 import { formatDate, formatDateTime, formatMoney, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Custom report builder and viewer (Chapter 10 §10.8): pick a dataset you may read, join related
@@ -70,6 +71,43 @@ const available = computed<Array<Field & { ref: string; group: string }>>(() => 
 const fieldByRef = computed(() => Object.fromEntries(available.value.map((f) => [f.ref, f])));
 const readonly = computed(() => !!saved.value && (saved.value.is_system_seed || !can('reporting.definition.update')));
 const formats = computed(() => (['pdf', 'xlsx', 'csv'] as const).filter((f) => can(`reporting.report.export_${f}`)));
+const archiving = ref(false);
+const canArchive = computed(() => !!saved.value && !saved.value.is_system_seed && can('reporting.definition.archive'));
+/** Next action, step by step: choose the data, run it, keep it, share or export it. */
+const nextActions = computed<NextAction[]>(() => {
+    if (!datasetCode.value) {
+        return [{ label: 'Choose what to report on', icon: 'list', onClick: () => document.getElementById('rb-dataset')?.focus(), hint: 'Pick a dataset; its fields and filters appear below.' }];
+    }
+    if (!result.value) {
+        return [{ label: 'Run the report', icon: 'chart', onClick: () => void run(), hint: 'See the live result before you save or export it.' }];
+    }
+    const keep = (!saved.value || dirty()) && can('reporting.definition.create') && !readonly.value;
+    const exportFirst = formats.value[0];
+
+    return [
+        ...(keep ? [{ label: saved.value ? 'Save changes' : 'Save the report', icon: 'check', onClick: () => document.getElementById('rb-name')?.focus(),
+            hint: 'Give it a name below and save it to run it again any time.' }] : []),
+        ...(exportFirst ? [{ label: `Export to ${exportFirst === 'xlsx' ? 'Excel' : exportFirst.toUpperCase()}`, icon: 'download', onClick: () => void exportAs(exportFirst),
+            hint: keep ? undefined : 'Exports run in the background and download when ready.' }] : []),
+    ];
+});
+
+async function archive() {
+    if (!saved.value || !window.confirm(`Archive “${saved.value.name}”? It disappears from the report list for everyone.`)) {
+        return;
+    }
+    archiving.value = true;
+    error.value = null;
+    try {
+        await post(`/api/v1/report-definitions/${saved.value.id}/archive`, { reason: null });
+        notify('Report archived.');
+        router.visit('/reports');
+    } catch (e) {
+        error.value = e;
+    } finally {
+        archiving.value = false;
+    }
+}
 
 const OPERATORS: Record<string, string[]> = {
     string: ['eq', 'neq', 'contains', 'starts_with', 'ends_with', 'in', 'is_empty', 'is_not_empty'],
@@ -291,8 +329,9 @@ function cell(value: unknown, column: Record<string, any>): string {
 </script>
 
 <template>
-    <PageHeader :title="saved ? saved.name : 'New report'" :subtitle="dataset?.label" back="/reports">
+    <PageHeader :title="saved ? saved.name : 'New report'" :subtitle="dataset?.label" back="/reports" :next="nextActions">
         <template #actions>
+            <UiButton v-if="canArchive" variant="ghost" icon="x" :loading="archiving" @click="archive">Archive</UiButton>
             <UiButton v-if="saved && can('reporting.definition.share') && !saved.is_system_seed" icon="users" @click="openShare">Share</UiButton>
             <UiButton v-for="f in formats" :key="f" icon="download" :loading="exporting === f" :disabled="!datasetCode || exporting !== null" @click="exportAs(f)">
                 {{ f === 'xlsx' ? 'Excel' : f.toUpperCase() }}

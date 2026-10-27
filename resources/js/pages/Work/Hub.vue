@@ -9,12 +9,13 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { loadEnums, loadSchema, type SchemaProperty } from '@/lib/meta';
 import { columnsFor } from '@/lib/display';
-import type { WorkHub, WorkQueue, WorkSummary } from '@/types/shared';
+import type { NextAction, WorkHub, WorkQueue, WorkSummary } from '@/types/shared';
 
 /**
  * A workflow hub (WorkflowCatalog::HUBS): how to start new work, and the queues of documents waiting
  * for this person — tabs with counts, the selected queue's documents oldest first. `?queue=` selects
- * a queue (links from Home). Browsing all documents stays one click away.
+ * a queue (links from Home). Browsing all documents stays one click away. Next action: the oldest
+ * document of the selected queue, else another queue with work in it, else the first way to start.
  */
 const props = defineProps<{ hub: string }>();
 
@@ -28,6 +29,22 @@ const properties = ref<Record<string, SchemaProperty>>({});
 
 const queue = computed<WorkQueue | null>(() => hub.value?.queues.find((q) => q.key === selected.value) ?? null);
 const columns = computed(() => columnsFor(properties.value, rows.value[0]));
+const label = (row: Record<string, any>) => String(row.document_number ?? row.movement_number ?? row.code ?? row.name ?? 'the oldest one');
+const nextActions = computed<NextAction[]>(() => {
+    const q = queue.value;
+    if (q && rows.value.length && q.kind !== 'watch') {
+        return [{ label: `Open ${label(rows.value[0])}`, icon: 'arrow-right', href: `/r/${q.resource}/${rows.value[0].id}`,
+            hint: `${q.count} in “${q.label}”, oldest first.` }];
+    }
+    const other = hub.value?.queues.find((x) => x.key !== q?.key && x.count > 0 && x.kind !== 'watch');
+    if (other) {
+        return [{ label: `${other.label} (${other.count})`, icon: other.kind === 'approve' ? 'check' : 'clipboard', onClick: () => select(other.key),
+            hint: 'Nothing is waiting in this queue; this one has work.' }];
+    }
+    const start = hub.value?.start[0];
+
+    return start ? [{ label: start.label, icon: start.icon, href: start.href, hint: 'Nothing is waiting for you here. Start new work.' }] : [];
+});
 
 async function loadRows(append = false) {
     if (!queue.value) {
@@ -76,7 +93,7 @@ onMounted(async () => {
 
 <template>
     <div>
-        <PageHeader :title="hub?.label ?? 'Work'" :subtitle="hub?.description" />
+        <PageHeader :title="hub?.label ?? 'Work'" :subtitle="hub?.description" :next="nextActions" />
         <ErrorSummary :error="error" />
 
         <section v-if="hub?.start.length" class="mb-6 flex flex-wrap gap-2" aria-label="Start">

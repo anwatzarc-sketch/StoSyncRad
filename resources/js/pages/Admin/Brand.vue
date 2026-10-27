@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { nextSetupStep } from '@/lib/adminFlow';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import BrandEditor from '@/components/BrandEditor.vue';
@@ -8,10 +9,13 @@ import { get, post } from '@/lib/api';
 import { loadEnums } from '@/lib/meta';
 import { formatDateTime } from '@/lib/format';
 import { useShared } from '@/composables/useShared';
-import type { BrandForm } from '@/types/shared';
+import type { BrandForm, NextAction } from '@/types/shared';
 
 /** Re-brand without a rebuild (Chapter 03 §3.5): every save creates and activates a new kit version. */
-const { can } = useShared();
+const { can, nav } = useShared();
+/** Next action: the next going-live step (lib/adminFlow). */
+const nextActions = computed<NextAction[]>(() => [nextSetupStep('/admin/brand', nav.value)]
+    .filter((a): a is NextAction => !!a));
 const form = ref<BrandForm | null>(null);
 const kits = ref<Record<string, any>[]>([]);
 const busy = ref(false);
@@ -48,7 +52,7 @@ async function activate() {
 </script>
 
 <template>
-    <PageHeader title="Brand" subtitle="Names, colours, logos and icons — applied everywhere without rebuilding the app">
+    <PageHeader title="Brand" :next="nextActions" subtitle="Names, colours, logos and icons — applied everywhere without rebuilding the app">
         <template #actions>
             <UiButton v-if="can('platform.brand.manage')" variant="primary" :loading="busy" :disabled="!form" @click="activate">Save & activate</UiButton>
         </template>

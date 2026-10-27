@@ -7,6 +7,7 @@ import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { get, post } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import { formatDateTime } from '@/lib/format';
+import type { NextAction } from '@/types/shared';
 
 const required = new URLSearchParams(window.location.search).get('required');
 const me = ref<Record<string, any> | null>(null);
@@ -22,6 +23,18 @@ const recovery = ref<string[] | null>(null);
 const mfaBusy = ref(false);
 const mfaError = ref<unknown>(null);
 const qr = computed(() => (enrolment.value ? `data:image/svg+xml;base64,${btoa(enrolment.value.qr_svg)}` : ''));
+/** Next action: what the sign-in policy still requires, else two-step verification, else back to work. */
+const nextActions = computed<NextAction[]>(() => {
+    if (required === 'PASSWORD_CHANGE_REQUIRED') {
+        return [{ label: 'Change your password', icon: 'lock', onClick: () => document.getElementById('current-password')?.focus(), hint: 'You need a new password before you can continue.' }];
+    }
+    if (me.value && me.value.account.mfa_status !== 'enrolled') {
+        return [{ label: 'Set up two-step verification', icon: 'smartphone', onClick: () => void beginMfa(),
+            hint: required === 'MFA_ENROLLMENT_REQUIRED' ? 'Your role requires it before you can continue.' : 'A code from your phone keeps your account safe even if the password leaks.' }];
+    }
+
+    return me.value ? [{ label: 'Back to my work', icon: 'home', href: '/', hint: 'Your account is protected with two-step verification.' }] : [];
+});
 
 onMounted(async () => {
     me.value = (await get('/api/v1/me')).data;
@@ -77,7 +90,7 @@ async function confirmMfa() {
 </script>
 
 <template>
-    <PageHeader title="Account & security" :subtitle="me ? `${me.account.display_name} · ${me.account.username}` : null" />
+    <PageHeader title="Account & security" :subtitle="me ? `${me.account.display_name} · ${me.account.username}` : null" :next="nextActions" />
 
     <div v-if="required === 'PASSWORD_CHANGE_REQUIRED'" class="mb-4 rounded-brand border border-warning/40 bg-warning/10 p-4 text-sm" role="alert">
         Your password must be changed before you continue.

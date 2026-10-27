@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import ReferencePicker from '@/components/ui/ReferencePicker.vue';
@@ -9,10 +9,12 @@ import { get, post } from '@/lib/api';
 import { formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Replenishment suggestions (Chapter 08 §8.15): projected = available + inbound − committed, with
  * the breakdown visible; converting creates a draft purchase request or transfer for the normal workflow.
+ * Next action: submit the drafts just created, else review the first suggestion.
  */
 const { can } = useShared();
 const warehouseId = ref<string | null>(null);
@@ -51,13 +53,28 @@ async function convert(row: Record<string, any>) {
 }
 
 const docHref = (r: { type: string; id: string }) => `/r/${r.type === 'transfer' || r.type === 'transfer_order' ? 'transfers' : 'purchase-requests'}/${r.id}`;
+const nextActions = computed<NextAction[]>(() => {
+    const drafts = Object.values(created.value);
+    if (drafts.length) {
+        return drafts.slice(0, 3).map((d, i) => ({ label: `Submit ${d.document_number}`, icon: 'arrow-right', href: docHref(d),
+            hint: i === 0 ? 'Drafts go nowhere until they are submitted for approval.' : undefined }));
+    }
+    const first = rows.value.find((r) => !created.value[r.reorder_rule_id]);
+    if (first && can('planning.replenishment.convert')) {
+        return [{ label: `Review ${first.sku}`, icon: 'refresh', onClick: () => document.getElementById(`q-${first.reorder_rule_id}`)?.focus(),
+            hint: `${rows.value.length} item(s) at or below their reorder point. Check the quantity, then draft the request.` }];
+    }
+
+    return !loading.value && can('catalog.reorder_rule.read')
+        ? [{ label: 'Reorder rules', icon: 'sliders', href: '/r/reorder-rules', hint: 'Nothing needs replenishing. Reorder rules decide what appears here.' }] : [];
+});
 
 onMounted(load);
 watch(warehouseId, () => void load());
 </script>
 
 <template>
-    <PageHeader title="Replenishment" subtitle="Items at or below their reorder point" />
+    <PageHeader title="Replenishment" subtitle="Items at or below their reorder point" :next="nextActions" />
     <div class="card mb-4 max-w-md">
         <label for="rep-warehouse" class="label">Warehouse</label>
         <ReferencePicker id="rep-warehouse" v-model="warehouseId" resource="warehouses" />

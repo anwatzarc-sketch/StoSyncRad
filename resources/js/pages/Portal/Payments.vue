@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { formatDate, formatMoney } from '@/lib/format';
+import type { NextAction } from '@/types/shared';
 
 /** The payment confirmations this customer sent, and what finance decided. */
 const rows = ref<Array<Record<string, any>>>([]);
 const loaded = ref(false);
 const error = ref<unknown>(null);
+const nextActions = computed<NextAction[]>(() => {
+    const asked = rows.value.find((c) => c.status === 'info_requested');
+
+    return asked
+        ? [{ label: `Answer ${asked.document_number}`, icon: 'info', href: `/portal/payments/${asked.id}`, hint: 'We need a little more information to confirm this payment.' }]
+        : loaded.value ? [{ label: 'Pay an open invoice', icon: 'file', href: '/portal/invoices', hint: 'Payments you confirm are reviewed by our team.' }] : [];
+});
 
 onMounted(async () => {
     try {
@@ -25,7 +33,7 @@ onMounted(async () => {
 
 <template>
     <Head title="Payments" />
-    <PageHeader title="Payment confirmations" />
+    <PageHeader title="Payment confirmations" :next="nextActions" />
     <ErrorSummary :error="error" />
     <p class="mb-3 text-sm text-ink-muted">To confirm a new payment, open the <Link href="/portal/invoices" class="underline">invoice</Link> you paid.</p>
     <div class="card">

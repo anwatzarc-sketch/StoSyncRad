@@ -3,14 +3,16 @@ import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
+import NextActions from '@/components/NextActions.vue';
 import { get } from '@/lib/api';
 import { useShared } from '@/composables/useShared';
-import type { WorkQueue, WorkSummary } from '@/types/shared';
+import type { NextAction, WorkQueue, WorkSummary } from '@/types/shared';
 
 /**
  * Home — "My work" (Chapter 12 §12.6): what this person can start, what is waiting for them (counted
  * by the server where they may perform the awaited action; approvals first) and a few signals worth
- * a look. One request: GET /api/v1/work.
+ * a look. One request: GET /api/v1/work. Next action: the first thing waiting (approvals first), else
+ * the first thing this person can start.
  */
 const { auth } = useShared();
 const work = ref<WorkSummary | null>(null);
@@ -29,6 +31,16 @@ const todo = computed(() => (work.value?.waiting ?? []).filter((q) => q.kind !==
 const alerts = computed(() => (work.value?.alerts ?? []).filter((a) => a.count > 0));
 const caughtUp = computed(() => work.value !== null && work.value.waiting.length === 0);
 const icon = (q: WorkQueue) => (q.kind === 'approve' ? 'check' : q.hub ? hubIcon.value[q.hub] ?? 'clipboard' : 'clipboard');
+const nextActions = computed<NextAction[]>(() => {
+    const first = work.value?.waiting[0];
+    if (first) {
+        return [{ label: `${first.label} (${first.count})`, icon: icon(first), href: first.href,
+            hint: first.kind === 'approve' ? 'Others are waiting for your approval — start there.' : 'This is the oldest work waiting for you.' }];
+    }
+    const start = work.value?.start[0];
+
+    return start ? [{ label: start.label, icon: start.icon, href: start.href, hint: 'Nothing is waiting for you. Start something new.' }] : [];
+});
 
 onMounted(async () => {
     try {
@@ -47,6 +59,7 @@ onMounted(async () => {
             <p class="mt-1 text-sm text-ink-muted">Here is what needs you today.</p>
         </header>
         <ErrorSummary :error="error" />
+        <NextActions :actions="nextActions" />
 
         <!-- Start something -->
         <section v-if="work?.start.length" class="mb-8" aria-labelledby="start-title">

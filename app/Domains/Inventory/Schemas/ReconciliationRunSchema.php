@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domains\Inventory\Schemas;
 
+use App\Domains\Catalog\Models\Item;
 use App\Domains\Organization\Models\Warehouse;
 use App\Support\Schema\Property;
 use App\Support\Schema\TableSchema;
@@ -20,7 +21,7 @@ final class ReconciliationRunSchema extends TableSchema
     {
         return [
             'warehouse_id' => Property::uuid()->nullable()->references(Warehouse::class)->virtual()->label('Warehouse'),
-            'item_ids' => Property::arrayOf(Property::uuid())->nullable()->max(5000)->virtual()->label('Items'),
+            'item_ids' => Property::arrayOf(Property::uuid()->references(Item::class))->nullable()->max(5000)->virtual()->label('Items'),
         ];
     }
 }

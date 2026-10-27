@@ -8,6 +8,8 @@ use App\Domains\IdentityAccess\Actions\AssignRoleAction;
 use App\Domains\IdentityAccess\Actions\SaveRoleAction;
 use App\Domains\IdentityAccess\Models\UserAccount;
 use App\Domains\IdentityAccess\Services\Access;
+use App\Domains\IdentityAccess\Services\StepUpVerifier;
+use App\Domains\Inventory\Services\ReversalService;
 use App\Domains\Organization\Enums\BranchKind;
 use App\Domains\Organization\Models\Warehouse;
 use App\Domains\Platform\Enums\PlatformSetupState;
@@ -73,6 +75,29 @@ final class WorkQueuesTest extends TestCase
         $rows = $this->as($approver)->getJson('/api/v1/work/queues/stock-adjustments.approve')->assertOk()->json('data');
 
         $this->assertSame([$someoneElses->id], array_column($rows, 'id'), 'the creator may not approve their own adjustment (adjustment_creator_not_approver)');
+    }
+
+    public function test_requested_stock_reversals_wait_for_a_second_person_who_posts_them_from_the_queue(): void
+    {
+        $wh = $this->site();
+        $item = $this->item();
+        $movementId = $this->receive($item, $wh, '10', '4')->body['movement_id'];
+        $reversal = app(ReversalService::class)->request($movementId, $this->superAdmin(), ['reason' => 'Received twice']);
+        $approver = $this->actorWith(['inventory.movement.read']);
+        $this->grant($approver, ['inventory.movement.reverse'], 'warehouse', $wh->id);
+
+        $waiting = collect($this->as($approver)->getJson('/api/v1/work')->assertOk()->json('data.waiting'))->keyBy('key');
+        $this->assertSame(1, $waiting['movement-reversals.approve']['count']);
+        $this->assertSame("/r/movement-reversals/$reversal->id", $waiting['movement-reversals.approve']['href']);
+        $this->assertSame([$reversal->id], array_column($this->as($approver)->getJson('/api/v1/movement-reversals')->assertOk()->json('data'), 'id'));
+
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($approver, 'web')->withHeader('Referer', config('app.url'))->withSession([StepUpVerifier::SESSION_KEY => time()])
+            ->withHeader('Idempotency-Key', (string) Str::uuid7())->postJson("/api/v1/reversals/$reversal->id/approve", [])->assertCreated();
+
+        $this->assertSame('posted', DB::table('stock_movement_reversals')->where('id', $reversal->id)->value('status'));
+        $this->assertSame('0.000000', $this->onHand($item, $wh));
+        $this->assertArrayNotHasKey('movement-reversals.approve', collect($this->as($approver)->getJson('/api/v1/work')->json('data.waiting'))->keyBy('key')->all());
     }
 
     public function test_unknown_hubs_and_queues_are_not_found(): void

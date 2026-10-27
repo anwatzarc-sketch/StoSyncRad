@@ -10,6 +10,7 @@ import { ApiError, get, post } from '@/lib/api';
 import { formatDate, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Stocktake counting (Chapter 08 §8.13): walk the locations, scan a location to jump to it, key the
@@ -37,6 +38,22 @@ const workLines = computed(() => lines.value.filter((l) => (recountRound.value ?
     .filter((l) => !filter.value || l.location_path === filter.value));
 const pending = computed(() => workLines.value.filter((l) => !entries[l.id]?.excluded && (entries[l.id]?.quantity ?? '') === '').length);
 const dirty = computed(() => Object.entries(entries).filter(([id, e]) => e.excluded || (e.quantity !== '' && e.quantity !== original(id))));
+/** Next action: the next location with uncounted lines, then saving, then finishing the count. */
+const nextActions = computed<NextAction[]>(() => {
+    if (!head.value) {
+        return [];
+    }
+    const uncounted = lines.value.filter((l) => (recountRound.value ? l.count_status === 'recount_required' : true) && !entries[l.id]?.excluded && (entries[l.id]?.quantity ?? '') === '');
+    if (uncounted.length) {
+        const where = uncounted[0].location_path;
+
+        return [{ label: where ? `Count ${where}` : 'Count the next line', icon: 'scan', onClick: () => document.getElementById('count-scan')?.focus(),
+            hint: `${uncounted.length} line(s) still to count. Scan the location label to jump to it.` },
+        ...(dirty.value.length ? [{ label: 'Save counts so far', icon: 'check', onClick: () => void save() }] : [])];
+    }
+
+    return [{ label: 'Finish counting', icon: 'check', onClick: () => void save(true), hint: 'Every line has a count. Finish to send the variances for review.' }];
+});
 
 function original(id: string): string {
     const l = lines.value.find((x) => x.id === id);
@@ -105,7 +122,7 @@ onMounted(load);
 
 <template>
     <PageHeader :title="head ? `Count ${head.document_number}` : 'Count'" :subtitle="head ? (recountRound ? 'Recount round — only flagged lines' : head.is_blind ? 'Blind count' : null) : null"
-                :back="`/r/stocktakes/${stocktakeId}`" />
+                :back="`/r/stocktakes/${stocktakeId}`" back-label="stocktake" :next="nextActions" />
     <ErrorSummary :error="error" />
     <p v-if="head?.instructions" class="card mb-4 text-sm">{{ head.instructions }}</p>
 

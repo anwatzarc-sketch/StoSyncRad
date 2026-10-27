@@ -126,21 +126,47 @@ export interface WorkflowMeta {
     actions: Record<string, { from: string[]; primary: boolean; task: string | null }>;
 }
 
+/** A follow-up link of a record page (WorkflowCatalog::NEXT); `{field}` placeholders take record values. */
+export interface NextLink {
+    label: string;
+    href: string;
+    icon: string;
+    /** Only for records whose field holds one of these values (list fields: any of them). */
+    when?: Record<string, string[]>;
+}
+
+/** A read endpoint of one record shown on its page; `{…}` placeholders take the record id. */
+export interface ResourcePanel {
+    label: string;
+    uri: string;
+}
+
 export interface ResourceMeta {
     key: string;
     label: string;
     /** Singular, lower-case name of one record ("purchase order"). */
     noun: string;
+    /** The workflow hub this document is worked in, if any. */
+    hub: { key: string; label: string } | null;
     schema: string | null;
     api: string;
     /** Dedicated create endpoint and its schema, when records are created outside the generic writer. */
     create_schema: string | null;
     api_create: string | null;
+    /** The create endpoint posts to the ledger: send a stable Idempotency-Key. */
+    create_idempotent: boolean;
+    /** Where to go after creating, when the result is not a record of this resource (`{field}` from the result). */
+    create_land: string | null;
     can_create: boolean;
+    /** Dedicated edit endpoint (`{id}` placeholder) and its schema. */
+    update_schema: string | null;
+    api_update: string | null;
     can_update: boolean;
     relations: string[];
     actions: ResourceAction[];
     workflow: WorkflowMeta | null;
+    panels: ResourcePanel[];
+    next: NextLink[];
 }
 
 /** "My work" (GET /api/v1/work). */
@@ -162,6 +188,16 @@ export interface WorkLink {
     label: string;
     href: string;
     icon: string;
+}
+
+/** One entry of a screen's "Next action" bar: a link, or a button handled by the page. */
+export interface NextAction {
+    label: string;
+    icon?: string;
+    href?: string;
+    onClick?: () => void;
+    /** A short line saying why this is the next thing to do. */
+    hint?: string;
 }
 
 export interface WorkHub {

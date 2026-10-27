@@ -12,6 +12,7 @@ import { notify } from '@/lib/toast';
 import { usePosting } from '@/composables/usePosting';
 import { useShared } from '@/composables/useShared';
 import { scanLocation } from '@/lib/scan';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Put away (Chapter 06 §6.4, Chapter 08 §8.3): the open put-away tasks in your warehouses, yours first.
@@ -37,6 +38,21 @@ const code = ref('');
 const posting = ref<ReturnType<typeof usePosting> | null>(null);
 
 const others = computed(() => tasks.value.filter((t) => t !== current.value));
+/** Next action: put the open task away, else start the oldest task (yours first), else go back to receiving. */
+const nextActions = computed<NextAction[]>(() => {
+    if (loading.value) {
+        return [];
+    }
+    if (current.value) {
+        return [{ label: `Put away into ${destinationPath.value ?? 'a bin'}`, icon: 'boxes', onClick: () => void putAway(),
+            hint: `${current.value.sku}: scan the bin you are putting it into${current.value.suggested_location_path ? `, or keep the suggested ${current.value.suggested_location_path}` : ''}.` }];
+    }
+    const first = tasks.value[0];
+
+    return first
+        ? [{ label: `Start with ${first.sku}`, icon: 'arrow-right', onClick: () => open(first), hint: `${tasks.value.length} task(s) waiting. Or scan an item, lot or task number.` }]
+        : [{ label: 'Receive more goods', icon: 'inbox', href: '/tasks/receiving', hint: 'Nothing is waiting to be put away.' }];
+});
 
 async function load() {
     loading.value = true;
@@ -100,7 +116,7 @@ onMounted(load);
 </script>
 
 <template>
-    <PageHeader title="Put away" subtitle="Move received goods from the dock to their bins" back="/work/receiving" />
+    <PageHeader title="Put away" subtitle="Move received goods from the dock to their bins" back="/work/receiving" :next="nextActions" />
     <ErrorSummary :error="loadError ?? posting?.error" />
 
     <div class="card mb-4">

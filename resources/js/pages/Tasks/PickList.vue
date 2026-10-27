@@ -8,6 +8,7 @@ import BarcodeInput from '@/components/BarcodeInput.vue';
 import { get, post } from '@/lib/api';
 import { formatDate, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Picking (Chapter 08 §8.9, diagram "FEFO picking"): lines in walking order with the lot the
@@ -26,6 +27,22 @@ const error = ref<unknown>(null);
 
 const open = computed(() => lines.value.filter((l) => l.status === 'pending'));
 const ready = computed(() => open.value.filter((l) => entries[l.id]?.quantity !== '' && (Number(entries[l.id].quantity) >= Number(l.suggested_base_quantity) || entries[l.id].reason.trim())));
+/** Next action: the next line in walking order to scan, then recording the picks and completing the list. */
+const nextActions = computed<NextAction[]>(() => {
+    if (!head.value) {
+        return [];
+    }
+    const todo = open.value.find((l) => !entries[l.id]?.confirmed && entries[l.id]?.quantity === '');
+    if (todo) {
+        return [{ label: `Go to ${todo.location_path ?? todo.sku}`, icon: 'scan', onClick: () => document.getElementById('pick-scan')?.focus(),
+            hint: `Pick ${formatQuantity(todo.suggested_base_quantity)} × ${todo.sku}${todo.lot_number ? ` (lot ${todo.lot_number})` : ''}, then scan the location to confirm.` }];
+    }
+    if (open.value.length) {
+        return [{ label: 'Complete the pick list', icon: 'check', onClick: () => void record(true), hint: `${ready.value.length} of ${open.value.length} line(s) ready. Short picks need a reason.` }];
+    }
+
+    return [{ label: 'Open the pick list', icon: 'list-check', href: `/r/pick-lists/${props.pickListId}`, hint: 'Every line is picked.' }];
+});
 
 async function load() {
     try {
@@ -84,7 +101,7 @@ onMounted(load);
 </script>
 
 <template>
-    <PageHeader :title="head ? `Pick ${head.document_number}` : 'Pick'" :back="`/r/pick-lists/${pickListId}`" />
+    <PageHeader :title="head ? `Pick ${head.document_number}` : 'Pick'" :back="`/r/pick-lists/${pickListId}`" back-label="pick list" :next="nextActions" />
     <ErrorSummary :error="error" />
 
     <div class="card sticky top-16 z-10 mb-4">

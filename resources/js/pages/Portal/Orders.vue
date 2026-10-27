@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StatusBadge from '@/components/ui/StatusBadge.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { formatDate, formatMoney } from '@/lib/format';
+import type { NextAction } from '@/types/shared';
 
 const rows = ref<Array<Record<string, any>>>([]);
 const loaded = ref(false);
 const error = ref<unknown>(null);
+const nextActions = computed<NextAction[]>(() => {
+    const open = rows.value.find((o) => !['delivered', 'cancelled', 'closed'].includes(o.status));
+
+    return open
+        ? [{ label: `Follow ${open.document_number}`, icon: 'truck', href: `/portal/orders/${open.id}`, hint: 'See where your order is and confirm the delivery when it arrives.' }]
+        : loaded.value ? [{ label: 'Browse products', icon: 'boxes', href: '/portal/catalog', hint: 'No open orders.' }] : [];
+});
 
 onMounted(async () => {
     try {
@@ -24,7 +32,7 @@ onMounted(async () => {
 
 <template>
     <Head title="Orders" />
-    <PageHeader title="Orders" />
+    <PageHeader title="Orders" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="card">
         <p v-if="loaded && !rows.length" class="py-8 text-center text-ink-muted">No orders yet. <Link href="/portal/catalog" class="underline">Browse products</Link>.</p>

@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
-import type { WorkHub, WorkSummary } from '@/types/shared';
+import type { NextAction, WorkHub, WorkSummary } from '@/types/shared';
 
 /** Every workflow this person works in, with how much is waiting in each (the mobile "Work" tab). */
 const hubs = ref<WorkHub[] | null>(null);
 const error = ref<unknown>(null);
 const waiting = (h: WorkHub) => h.queues.filter((q) => q.kind !== 'watch').reduce((n, q) => n + q.count, 0);
+/** Next action: the workflow with the most waiting for this person. */
+const nextActions = computed<NextAction[]>(() => {
+    const busiest = [...(hubs.value ?? [])].sort((a, b) => waiting(b) - waiting(a))[0];
+
+    return busiest && waiting(busiest) > 0
+        ? [{ label: `Open ${busiest.label}`, icon: busiest.icon, href: busiest.href, hint: `${waiting(busiest)} waiting for you in ${busiest.label}.` }]
+        : [];
+});
 
 onMounted(async () => {
     try {
@@ -23,7 +31,7 @@ onMounted(async () => {
 
 <template>
     <div>
-        <PageHeader title="Work" subtitle="Choose what you are working on." />
+        <PageHeader title="Work" subtitle="Choose what you are working on." :next="nextActions" />
         <ErrorSummary :error="error" />
         <div v-if="!hubs && !error" class="grid gap-3 sm:grid-cols-2" aria-busy="true">
             <div v-for="n in 4" :key="n" class="h-24 animate-pulse rounded-brand bg-surface" />

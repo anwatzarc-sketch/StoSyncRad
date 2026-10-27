@@ -183,6 +183,26 @@ final class ApiSurfaceTest extends TestCase
         $this->assertSame('17.5', app(PlatformConfig::class)->get('billing.invoice.tax_rate_percent'));
     }
 
+    public function test_the_accounts_per_person_policy_is_refused_with_422_by_the_generic_endpoint_and_changes_through_its_own(): void
+    {
+        $admin = $this->actorWith(['platform.config.read', 'platform.config.identity_manage']);
+
+        $this->browser($admin, steppedUp: true)->putJson('/api/v1/admin/config/identity.accounts_per_person', ['value' => 'multiple', 'scope_type' => 'global'])
+            ->assertStatus(422)->assertJsonPath('code', 'POLICY_VIOLATION');
+        $this->assertDatabaseMissing('configuration_entries', ['key' => 'identity.accounts_per_person']);
+
+        $this->browser($admin, steppedUp: true)->putJson('/api/v1/admin/accounts-per-person-policy', ['policy' => 'multiple', 'reason' => 'Shift workers share a desk login'])
+            ->assertOk()->assertJsonPath('data.policy', 'multiple');
+        $this->assertSame('multiple', app(PlatformConfig::class)->get('identity.accounts_per_person'));
+    }
+
+    public function test_client_configuration_tells_every_signed_in_person_the_costing_policy(): void
+    {
+        $config = $this->token($this->actorWith(['inventory.stock.read']))->getJson('/api/v1/meta/config')->assertOk()->json('data');
+
+        $this->assertSame(['moving_average', 'company'], [$config['inventory.costing_method'] ?? null, $config['inventory.costing_level'] ?? null]);
+    }
+
     public function test_configuration_reader_without_billing_tax_permission_cannot_edit_the_fallback_invoice_tax_rate(): void
     {
         $actor = $this->actorWith(['platform.config.read']);

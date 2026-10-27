@@ -41,6 +41,8 @@ export interface SchemaProperty {
     item_type?: string;
     item_enum?: string;
     item_enum_values?: string[];
+    /** Arrays of references (e.g. lots of a recall): the referenced model, as `references`. */
+    item_references?: string;
     unique?: boolean;
     virtual?: boolean;
 }

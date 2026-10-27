@@ -44,6 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             HandleCors::class,
             EnsurePlatformSetupComplete::class,
+            SecurityHeaders::class,
         ]);
         $middleware->api(append: [
             EnsureAccountAudience::class,

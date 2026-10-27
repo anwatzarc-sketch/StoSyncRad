@@ -4,6 +4,8 @@ import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { useShared } from '@/composables/useShared';
+import { firstSetupStep } from '@/lib/adminFlow';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Administration — the control plane: master data, organization, people & access, platform settings,
@@ -12,6 +14,11 @@ import { useShared } from '@/composables/useShared';
  */
 const { nav } = useShared();
 const sections = computed(() => nav.value.filter((s) => s.area === 'admin'));
+/** Next action: the going-live set-up in order (lib/adminFlow), and the health check. */
+const nextActions = computed<NextAction[]>(() => [
+    firstSetupStep(nav.value),
+    sections.value.some((s) => s.items.some((i) => i.href === '/admin/health')) ? { label: 'System health', icon: 'pulse', href: '/admin/health' } : null,
+].filter((a): a is NextAction => !!a));
 
 const ABOUT: Record<string, string> = {
     catalog: 'Items, categories, units and the rules attached to them.',
@@ -26,7 +33,7 @@ const ABOUT: Record<string, string> = {
 
 <template>
     <div>
-        <PageHeader title="Administration" subtitle="Set up and look after the system. Daily work happens in the main navigation." />
+        <PageHeader title="Administration" subtitle="Set up and look after the system. Daily work happens in the main navigation." :next="nextActions" />
         <p v-if="!sections.length" class="card p-6 text-sm text-ink-muted">You have no administration permissions.</p>
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <section v-for="s in sections" :key="s.key" class="card p-5" :aria-labelledby="`admin-${s.key}`">

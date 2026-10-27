@@ -1,4 +1,4 @@
-import type { ResourceAction, WorkflowMeta } from '@/types/shared';
+import type { NextLink, ResourceAction, WorkflowMeta } from '@/types/shared';
 
 /**
  * Record-page helpers for documents with a workflow (WorkflowCatalog): which permitted actions apply in
@@ -36,4 +36,36 @@ export function stepIndex(workflow: WorkflowMeta, status: string | null | undefi
 /** Records with a workflow are edited only in their editable statuses (usually draft). */
 export function isEditable(workflow: WorkflowMeta | null, status: string | null | undefined): boolean {
     return !workflow || (status != null && workflow.editable.includes(status));
+}
+
+/** Fill `{field}` placeholders from a record (URL-encoded); null when one of them has no value. */
+export function fillTemplate(template: string, record: Record<string, unknown>): string | null {
+    let missing = false;
+    const out = template.replace(/\{([a-zA-Z_]+)\}/g, (_, field: string) => {
+        const value = record[field];
+        if (value === null || value === undefined || value === '') {
+            missing = true;
+
+            return '';
+        }
+
+        return encodeURIComponent(String(value));
+    });
+
+    return missing ? null : out;
+}
+
+/** The follow-up links (WorkflowCatalog::NEXT) that apply to this record now, with their placeholders filled. */
+export function followUps(next: NextLink[], record: Record<string, unknown>): NextLink[] {
+    const applies = (link: NextLink) => Object.entries(link.when ?? {}).every(([field, values]) => {
+        const value = record[field];
+
+        return Array.isArray(value) ? value.some((v) => values.includes(String(v))) : value != null && values.includes(String(value));
+    });
+
+    return next.filter(applies).flatMap((link) => {
+        const href = fillTemplate(link.href, record);
+
+        return href === null ? [] : [{ ...link, href }];
+    });
 }

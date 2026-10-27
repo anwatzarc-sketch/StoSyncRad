@@ -5,6 +5,7 @@ import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { post } from '@/lib/api';
+import { isAppPath } from '@/lib/navigation';
 import { useShared } from '@/composables/useShared';
 
 const { brand } = useShared();
@@ -22,8 +23,9 @@ function finish(data: { status: string; must_change_password?: boolean; mfa_enro
     } else if (data.mfa_enrollment_required) {
         window.location.assign('/account?required=MFA_ENROLLMENT_REQUIRED');
     } else {
+        // Only an in-app path: `//host` and `/\host` would leave the site (open redirect).
         const intended = new URLSearchParams(window.location.search).get('next');
-        window.location.assign(intended && intended.startsWith('/') && !intended.startsWith('//') ? intended : '/');
+        window.location.assign(isAppPath(intended) ? intended : '/');
     }
 }
 

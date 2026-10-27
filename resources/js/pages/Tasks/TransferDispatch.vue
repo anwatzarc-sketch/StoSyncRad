@@ -10,6 +10,7 @@ import { get } from '@/lib/api';
 import { formatDate, formatQuantity } from '@/lib/format';
 import { notify } from '@/lib/toast';
 import { usePosting } from '@/composables/usePosting';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Transfer dispatch (Chapter 08 §8.5, diagram "inter-branch transfer dispatch"): pick from the
@@ -30,6 +31,23 @@ const { busy, error, post } = usePosting(`dispatch:${props.transferId}`);
 const isSerial = (l: Line) => l.tracking_mode.includes('serial');
 const serialsOf = (p: Pick) => p.serials.split(/\s+/).map((x) => x.trim()).filter(Boolean);
 const total = computed(() => lines.value.reduce((n, l) => n + l.picks.filter((p) => (isSerial(l) ? serialsOf(p).length > 0 : Number(p.quantity) > 0)).length, 0));
+const picks = computed(() => lines.value.flatMap((l) => l.picks.filter((p) => Number(p.quantity) > 0).map((p) => ({ l, p }))));
+/** Next action: the next pick to confirm by scanning, then the dispatch itself. */
+const nextActions = computed<NextAction[]>(() => {
+    if (!header.value) {
+        return [];
+    }
+    if (!lines.value.length) {
+        return [{ label: 'Open the transfer', icon: 'truck', href: `/r/transfers/${props.transferId}`, hint: 'Nothing is left to dispatch on this transfer.' }];
+    }
+    const open = picks.value.find(({ p }) => !p.confirmed);
+    const done = picks.value.length - picks.value.filter(({ p }) => !p.confirmed).length;
+
+    return open
+        ? [{ label: `Scan ${open.p.location_path}`, icon: 'scan', onClick: () => document.getElementById('dispatch-scan')?.focus(),
+            hint: `Pick ${formatQuantity(open.p.quantity)} × ${open.l.sku}${open.p.lot_number ? ` (lot ${open.p.lot_number})` : ''} — ${done} of ${picks.value.length} picks confirmed.` }]
+        : [{ label: 'Dispatch now', icon: 'truck', onClick: () => void dispatch(), hint: 'Every pick is confirmed. Post the dispatch to put the stock in transit.' }];
+});
 
 onMounted(async () => {
     try {
@@ -78,7 +96,7 @@ async function dispatch() {
 
 <template>
     <PageHeader :title="header ? `Dispatch ${header.document_number}` : 'Dispatch'" :subtitle="header ? `${header.source_warehouse} → ${header.destination_warehouse}` : null"
-                :back="`/r/transfers/${transferId}`" />
+                :back="`/r/transfers/${transferId}`" back-label="transfer" :next="nextActions" />
     <ErrorSummary :error="loadError ?? error" />
 
     <div class="card mb-4">

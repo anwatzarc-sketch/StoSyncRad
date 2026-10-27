@@ -37,6 +37,9 @@ use Illuminate\Support\Str;
  */
 final class AdminController extends ApiController
 {
+    /** Keys whose change has its own rules and step-up: they are set only through their dedicated endpoint. */
+    private const DEDICATED_KEYS = ['identity.accounts_per_person' => 'PUT /api/v1/admin/accounts-per-person-policy'];
+
     public function __construct(
         private readonly ConfigRegistry $registry,
         private readonly PlatformConfig $config,
@@ -65,6 +68,9 @@ final class AdminController extends ApiController
     public function setConfig(Request $request, string $key): JsonResponse
     {
         $actor = $this->actor($request);
+        if (isset(self::DEDICATED_KEYS[$key])) {
+            throw DomainException::of(ErrorCode::POLICY_VIOLATION, 'Change this setting with '.self::DEDICATED_KEYS[$key].'.', ['field' => 'key']);
+        }
         $definition = $this->registry->get($key);
         if (! $this->access->can($actor, $definition->managePermission())) {
             throw DomainException::permissionDenied($definition->managePermission());

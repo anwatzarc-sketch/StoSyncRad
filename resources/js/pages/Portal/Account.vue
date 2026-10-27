@@ -7,8 +7,9 @@ import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import PasswordInput from '@/components/ui/PasswordInput.vue';
 import { post } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { loadProfile, profile } from '@/lib/portal';
+import { canDo, loadProfile, profile } from '@/lib/portal';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Customer account & security: password change (current password required) and replacing the
@@ -27,6 +28,10 @@ const codes = ref<string[]>([]);
 const mfaBusy = ref(false);
 const mfaError = ref<unknown>(null);
 const qr = computed(() => (candidate.value ? `data:image/svg+xml;base64,${btoa(candidate.value.qr_svg)}` : ''));
+/** Next action: back to the portal's work — the team for administrators, otherwise home. */
+const nextActions = computed<NextAction[]>(() => (canDo('customer.member.read')
+    ? [{ label: 'Manage your team', icon: 'users', href: '/portal/team', hint: 'Invite colleagues or change who administers the portal.' }]
+    : [{ label: 'Back to home', icon: 'home', href: '/portal/dashboard' }]));
 
 onMounted(() => void loadProfile(true).catch(() => undefined));
 
@@ -74,7 +79,7 @@ async function confirmReplace() {
 
 <template>
     <Head title="Account & security" />
-    <PageHeader title="Account & security" />
+    <PageHeader title="Account & security" :next="nextActions" />
     <div class="grid gap-6 lg:grid-cols-2">
         <section class="card space-y-2">
             <h2 class="text-lg font-semibold">Your account</h2>

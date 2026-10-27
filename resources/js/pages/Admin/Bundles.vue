@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { download, post } from '@/lib/api';
 import { notify } from '@/lib/toast';
 import { useShared } from '@/composables/useShared';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Config Bundles (Chapter 03 §3.8): export this deployment's configuration for a new client, or import
@@ -35,6 +36,21 @@ async function choose(event: Event) {
     }
 }
 
+/** Next action: preview a chosen bundle, apply a previewed one, then check the configuration. */
+const nextActions = computed<NextAction[]>(() => {
+    if (bundle.value && !report.value && can('platform.bundle.import')) {
+        return [{ label: 'Preview the import', icon: 'eye', onClick: () => void run(true), hint: `${fileName.value}: nothing changes until you apply it.` }];
+    }
+    if (bundle.value && report.value?.dry_run && can('platform.bundle.import')) {
+        return [{ label: 'Apply the bundle', icon: 'check', onClick: () => void run(false), hint: 'Every section is applied in one transaction.' }];
+    }
+    if (report.value && !report.value.dry_run) {
+        return [{ label: 'Check the configuration', icon: 'sliders', href: '/admin/config', hint: 'The bundle is applied.' }];
+    }
+
+    return can('platform.bundle.export') ? [{ label: 'Download this deployment\'s bundle', icon: 'download', onClick: () => void download('/api/v1/admin/config-bundle', 'bundle.json') }] : [];
+});
+
 async function run(dryRun: boolean) {
     busy.value = true;
     error.value = null;
@@ -52,7 +68,7 @@ async function run(dryRun: boolean) {
 </script>
 
 <template>
-    <PageHeader title="Config bundles" subtitle="Copy this deployment's configuration to a new client, or apply one here" />
+    <PageHeader title="Config bundles" subtitle="Copy this deployment's configuration to a new client, or apply one here" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="grid gap-6 lg:grid-cols-2">
         <section class="card space-y-3">

@@ -8,6 +8,7 @@ import PortalLayout from './layouts/PortalLayout.vue';
 import PublicLayout from './layouts/PublicLayout.vue';
 import MarketingLayout from './layouts/MarketingLayout.vue';
 import { configureFormatting } from './lib/format';
+import { trackVisits } from './lib/navigation';
 import { registerServiceWorker } from './lib/pwa';
 import type { SharedProps } from './types/shared';
 
@@ -39,4 +40,5 @@ createInertiaApp({
     nonce,
 });
 
+trackVisits();
 registerServiceWorker();

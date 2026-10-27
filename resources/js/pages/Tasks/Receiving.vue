@@ -10,6 +10,7 @@ import BarcodeInput from '@/components/BarcodeInput.vue';
 import { get } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { notify } from '@/lib/toast';
+import type { NextAction } from '@/types/shared';
 
 /**
  * Receive goods, step 1 (Chapter 08 §8.3): pick the purchase order that is arriving — scan or type
@@ -27,6 +28,18 @@ const shown = computed(() => {
     const term = search.value.trim().toLowerCase();
 
     return term ? orders.value.filter((o) => `${o.document_number} ${o.supplier_reference ?? ''} ${o.reference ?? ''}`.toLowerCase().includes(term)) : orders.value;
+});
+
+/** Next action: the order expected first, else back to the hub. */
+const nextActions = computed<NextAction[]>(() => {
+    if (loading.value && !orders.value.length) {
+        return [];
+    }
+    const first = orders.value[0];
+
+    return first
+        ? [{ label: `Receive ${first.document_number}`, icon: 'inbox', href: `/tasks/receiving/${first.id}`, hint: `${orders.value.length} order(s) awaiting delivery. Or scan the delivery note's order number.` }]
+        : [{ label: 'Back to Receive', icon: 'arrow-right', href: '/work/receiving', hint: 'No purchase order is awaiting delivery in your warehouses.' }];
 });
 
 async function load(append = false) {
@@ -58,7 +71,7 @@ onMounted(() => void load());
 </script>
 
 <template>
-    <PageHeader title="Receive goods" subtitle="Choose the purchase order that is being delivered" back="/work/receiving" />
+    <PageHeader title="Receive goods" subtitle="Choose the purchase order that is being delivered" back="/work/receiving" :next="nextActions" />
     <ErrorSummary :error="error" />
 
     <div class="card mb-4 grid gap-3 md:grid-cols-2">

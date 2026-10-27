@@ -6,10 +6,18 @@ import StatusBadge from '@/components/ui/StatusBadge.vue';
 import ErrorSummary from '@/components/ui/ErrorSummary.vue';
 import { get } from '@/lib/api';
 import { formatDate, formatMoney } from '@/lib/format';
+import type { NextAction } from '@/types/shared';
 
 const rows = ref<Array<Record<string, any>>>([]);
 const loaded = ref(false);
 const error = ref<unknown>(null);
+const nextActions = computed<NextAction[]>(() => {
+    const unpaid = rows.value.find((r) => ['issued', 'partially_paid'].includes(r.status));
+
+    return unpaid
+        ? [{ label: `Pay ${unpaid.document_number}`, icon: 'coins', href: `/portal/invoices/${unpaid.id}`, hint: 'After paying, upload the bank slip so we can match it.' }]
+        : loaded.value ? [{ label: 'See my payments', icon: 'coins', href: '/portal/payments', hint: 'Nothing is due.' }] : [];
+});
 const filter = ref<'open' | 'all'>('open');
 const shown = computed(() => (filter.value === 'open' ? rows.value.filter((r) => ['issued', 'partially_paid'].includes(r.status)) : rows.value));
 
@@ -26,7 +34,7 @@ onMounted(async () => {
 
 <template>
     <Head title="Invoices" />
-    <PageHeader title="Invoices" />
+    <PageHeader title="Invoices" :next="nextActions" />
     <ErrorSummary :error="error" />
     <div class="mb-3 flex gap-2" role="tablist" aria-label="Invoices">
         <button type="button" role="tab" :aria-selected="filter === 'open'" :class="['btn', filter === 'open' ? 'btn-primary' : 'btn-secondary']" @click="filter = 'open'">To pay</button>
