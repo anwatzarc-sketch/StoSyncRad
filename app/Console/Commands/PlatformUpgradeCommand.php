@@ -37,8 +37,12 @@ final class PlatformUpgradeCommand extends Command
         $this->line('✓ Configuration registry valid');
 
         $views = $catalog->installViews('mysql_deploy');
-        $tables = $grants->sync('mysql_deploy');
-        $this->line("✓ Runtime account grants synced ($tables tables)");
+        if ($grants->isManaged()) {
+            $tables = $grants->sync('mysql_deploy');
+            $this->line("✓ Runtime account grants synced ($tables tables)");
+        } else {
+            $this->comment('· Runtime account grants not managed (DB_MANAGE_GRANTS=false): append-only triggers protect ledger and audit rows.');
+        }
         $synced = $reporting->syncDatasets();
         $this->line("✓ Reporting views installed ($views); datasets synced ".json_encode($synced));
 

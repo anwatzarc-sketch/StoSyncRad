@@ -5,7 +5,8 @@ use Pdo\Mysql;
 
 /*
 |--------------------------------------------------------------------------
-| MySQL 8.4 is the only supported database (Master Spec 2.0, README §Precedence)
+| MySQL 8.0.32 or later is the only supported database; 8.4 LTS is the reference
+| version (Master Spec 2.0, README §Precedence)
 |--------------------------------------------------------------------------
 | Five connections map to four least-privilege accounts (database/mysql/setup.sql):
 |   mysql            application runtime account (DML; no DDL; append-only tables protected)
@@ -59,6 +60,10 @@ return [
         'deploy' => env('DB_DEPLOY_USERNAME', 'stosyncrad_deploy'),
         'reporting' => env('DB_REPORTING_USERNAME', 'stosyncrad_reporting'),
         'host' => env('DB_ACCOUNT_HOST', '%'),   // the host part the accounts were created with
+        // false where the deploy account cannot GRANT (hosting panels such as Plesk): the runtime
+        // account then holds UPDATE/DELETE database-wide and only the append-only triggers protect
+        // ledger and audit rows.
+        'manage_grants' => (bool) env('DB_MANAGE_GRANTS', true),
     ],
 
     'connections' => [
@@ -69,7 +74,7 @@ return [
 
         // Its default database is the companion reporting database, which holds only the views.
         'mysql_reporting' => $mysql('DB_REPORTING_USERNAME', 'DB_REPORTING_PASSWORD', [
-            'database' => env('DB_REPORTING_DATABASE', env('DB_DATABASE', 'stosyncrad').'_reporting'),
+            'database' => env('DB_REPORTING_DATABASE') ?: env('DB_DATABASE', 'stosyncrad').'_reporting',
         ]),
 
         'mysql_audit' => $mysql('DB_USERNAME', 'DB_PASSWORD'),

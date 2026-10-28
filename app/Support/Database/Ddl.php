@@ -10,7 +10,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 
 /**
- * MySQL 8.4 migration helpers (Chapter 05 §5.2, Chapter 13 §13.9).
+ * MySQL 8.0.32+ migration helpers (Chapter 05 §5.2, Chapter 13 §13.9).
  *
  * Every helper is idempotent so migrations can be re-run in CI parity tests. MySQL commits each DDL
  * statement on its own, so a failed migration can leave earlier statements applied; idempotency is

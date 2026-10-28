@@ -29,7 +29,8 @@ file covers running, deploying and extending it.
 ## Requirements
 
 PHP 8.3+ (`pdo_mysql`, `mbstring`, `intl`, `gd` or `imagick`, `zip`, `bcmath`, `openssl`,
-`fileinfo`, `ctype`, `json`, `xml`, `tokenizer`, `curl`), MySQL 8.4 LTS (not MariaDB), Composer, Node 22
+`fileinfo`, `ctype`, `json`, `xml`, `tokenizer`, `curl`), MySQL 8.0.32 or later — 8.4 LTS recommended
+(not MariaDB), Composer, Node 22
 LTS (build machine only), HTTPS, a scheduler entry running `php artisan schedule:run` every minute, and a
 queue worker for all three queues (`php artisan queue:work --queue=imports,reporting,default`) — a plain
 `queue:work` only serves `default`, so imports and report exports would wait forever.
@@ -43,6 +44,13 @@ delete ledger/audit rows), **reporting** (read-only on the reporting views) and 
 ```bash
 mysql -u root -p -e "SET @deploy_pw='…', @app_pw='…', @reporting_pw='…', @backup_pw='…'; SOURCE database/mysql/setup.sql"
 ```
+
+On a hosting panel such as Plesk, database users get no GRANT OPTION and `setup.sql` cannot run. Create
+the two databases and three users in the panel instead (deploy: every privilege on both databases;
+runtime: Select, Insert, Update, Delete, Lock Tables and Show View on both; reporting: Select on
+`<db>_reporting` only) and set `DB_MANAGE_GRANTS=false`. Ledger and audit rows are then protected by the
+append-only triggers alone (preflight warns), and the server must let ordinary users create triggers
+(`log_bin_trust_function_creators=ON`, or binary logging off).
 
 `php artisan platform:health` verifies the privileges, the append-only triggers and the session settings.
 

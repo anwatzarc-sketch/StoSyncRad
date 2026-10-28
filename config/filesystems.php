@@ -18,7 +18,8 @@ return [
         // Never web-reachable; served only through authorized streamed routes (Chapter 14 §14.4).
         'private' => [
             'driver' => 'local',
-            'root' => env('PRIVATE_STORAGE_ROOT', storage_path('app/private')),
+            // An empty value must not become an empty (working-directory-relative) root.
+            'root' => env('PRIVATE_STORAGE_ROOT') ?: storage_path('app/private'),
             'serve' => false,
             'throw' => true,
             'report' => false,

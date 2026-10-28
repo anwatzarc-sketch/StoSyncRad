@@ -6,6 +6,7 @@ namespace App\Domains\Platform\Services;
 
 use App\Domains\ReportingEngine\Services\ReportingSetup;
 use App\Domains\ReportingEngine\Services\ReportRunner;
+use App\Support\Database\RuntimeGrants;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -18,7 +19,7 @@ class Preflight
 {
     public const REQUIRED_EXTENSIONS = ['pdo_mysql', 'mbstring', 'intl', 'zip', 'bcmath', 'openssl', 'fileinfo', 'ctype', 'json', 'xml', 'tokenizer', 'curl'];
 
-    public const MINIMUM_MYSQL_VERSION = '8.4.0';
+    public const MINIMUM_MYSQL_VERSION = '8.0.32';
 
     /** @return array<int, array{check: string, status: string, message: string, remediation: ?string}> */
     public function run(): array
@@ -97,9 +98,14 @@ class Preflight
         $modifiesLedger = $this->hasPrivilege('DELETE', 'stock_movement_lines')
             || $this->hasPrivilege('UPDATE', 'stock_movement_lines', 'quantity')
             || $this->hasPrivilege('DELETE', 'audit_events');
-        $modifiesLedger
-            ? $add('runtime_role_append_only', 'fail', 'The runtime account can modify ledger or audit rows', 'Connect with the least-privilege runtime account (stosyncrad_app).')
-            : $add('runtime_role_append_only', 'pass', 'Runtime account cannot modify ledger or audit rows');
+        if (! $modifiesLedger) {
+            $add('runtime_role_append_only', 'pass', 'Runtime account cannot modify ledger or audit rows');
+        } elseif (app(RuntimeGrants::class)->isManaged()) {
+            $add('runtime_role_append_only', 'fail', 'The runtime account can modify ledger or audit rows', 'Connect with the least-privilege runtime account (stosyncrad_app).');
+        } else {
+            $add('runtime_role_append_only', 'warn', 'The runtime account can modify ledger or audit rows; only the append-only triggers protect them (DB_MANAGE_GRANTS=false)',
+                'Where the deployment account can GRANT, set DB_MANAGE_GRANTS=true and use the least-privilege accounts from database/mysql/setup.sql.');
+        }
 
         $probe = app(ReportingSetup::class)->probeReadOnly();
         if (! $probe['reachable']) {

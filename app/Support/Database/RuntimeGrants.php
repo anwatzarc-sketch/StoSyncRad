@@ -14,12 +14,24 @@ use Illuminate\Support\Facades\DB;
  *
  * Runs after every migration (MigrationsEnded) and in `platform:upgrade`, as the deployment account.
  * GRANT is idempotent and `REVOKE IF EXISTS` tolerates privileges that were never granted.
+ *
+ * Hosting panels (e.g. Plesk) give database users no GRANT OPTION; with DB_MANAGE_GRANTS=false the
+ * sync is skipped, the runtime account keeps its database-wide privileges and the append-only
+ * triggers (Ddl::appendOnly) alone protect ledger and audit rows.
  */
 final class RuntimeGrants
 {
-    /** @return int number of tables processed */
+    public function isManaged(): bool
+    {
+        return (bool) config('database.accounts.manage_grants', true);
+    }
+
+    /** @return int number of tables processed (0 when grants are not managed) */
     public function sync(?string $connection = null): int
     {
+        if (! $this->isManaged()) {
+            return 0;
+        }
         $db = DB::connection($connection);
         $app = $this->account($db->getPdo(), 'app');
         $tables = $db->table('information_schema.TABLES')

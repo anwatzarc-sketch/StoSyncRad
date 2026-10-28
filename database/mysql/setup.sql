@@ -1,4 +1,4 @@
--- StoSyncRad MySQL 8.4 bootstrap: databases and least-privilege accounts (run once as an
+-- StoSyncRad MySQL 8.0.32+ bootstrap: databases and least-privilege accounts (run once as an
 -- administrative user; idempotent). Passwords are never stored here; set them first:
 --
 --   mysql -u root -p -e "SET @deploy_pw='…', @app_pw='…', @reporting_pw='…', @backup_pw='…'; SOURCE database/mysql/setup.sql"
